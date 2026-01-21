@@ -76,10 +76,10 @@ All AI analyses, interpretations, and recommendations must be grounded in valida
 
 Training follows the **URF v5.1 Rolling Phase Model**, which classifies weekly load and recovery trends into evolving blocks — **Base → Build → Peak → Taper → Recovery** — derived directly from the interaction of these scientific models:
 
-- Banister (1975):** Fitness–fatigue impulse–response system for CTL/ATL/TSB dynamics
-- Seiler (2010, 2019):** Polarized intensity and adaptation rhythm
-- Issurin (2008):** Block periodization (accumulation → realization → taper)
-- Gabbett (2016):** Acute:Chronic workload ratio for safe progression
+- **Banister (1975):** Fitness–fatigue impulse–response system for CTL/ATL/TSB dynamics
+- **Seiler (2010, 2019):** Polarized intensity and adaptation rhythm
+- **Issurin (2008):** Block periodization (accumulation → realization → taper)
+- **Gabbett (2016):** Acute:Chronic workload ratio for safe progression
 
 Each week's data (TSS, CTL, ATL, TSB, RI) is analyzed for trend and slope:
 
