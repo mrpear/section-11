@@ -1,5 +1,4 @@
 ---
-name: section-11
 description: Evidence-based endurance cycling coaching protocol. Use when analyzing training data, reviewing sessions, planning workouts, answering training questions, or giving cycling coaching advice. Always fetch athlete JSON data before responding to any training question.
 ---
 
