@@ -5,12 +5,11 @@ Exports training data for LLM access.
 Supports both automated GitHub sync and manual local export.
 
 Version 3.2.0 - Smart ramp rate logic
-  - Smart ramp_rate: uses decayed yesterday value if planned workouts not yet completed,
-    otherwise uses API value (which includes completed workouts correctly)
+  - Smart fitness metrics: CTL/ATL/TSB/ramp_rate all use API values when today's
+    workouts are completed, decayed yesterday values when planned but not yet done
   - Uses API data for eFTP, W', P-max, VO2max, Sleep Score (from wellness endpoint)
   - Tracks indoor and outdoor FTP separately for Benchmark Index
   - Calculates ACWR, Monotony, Strain, Recovery Index locally
-  - CTL/ATL/TSB calculated via decay (API values include planned workouts)
 """
 
 import requests
@@ -290,11 +289,13 @@ class IntervalsSync:
         vo2max = today_wellness.get("vo2max")
         sleep_score = today_wellness.get("sleepScore")
         
-        # Get ramp rate from API (note: may include planned workouts, but user requested)
+        # Get API values for fitness metrics (these include planned workouts!)
+        api_ctl = today_wellness.get("ctl")
+        api_atl = today_wellness.get("atl")
         api_ramp_rate = today_wellness.get("rampRate")
         
-        print("Calculating actual fitness metrics (yesterday + decay)...")
-        # NOTE: We calculate CTL/ATL/TSB ourselves because API values include planned workouts
+        # Fetch yesterday's wellness for decay fallback
+        print("Fetching fitness metrics...")
         try:
             yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
             yesterday_wellness = self._intervals_get("wellness", {"oldest": yesterday, "newest": yesterday})
@@ -304,20 +305,19 @@ class IntervalsSync:
             ctl_decay = math.exp(-1/42)  # ~0.9765
             atl_decay = math.exp(-1/7)   # ~0.8668
             
-            # Calculate actual current values (after overnight decay, before any workout today)
             yesterday_ctl = yesterday_data.get("ctl")
             yesterday_atl = yesterday_data.get("atl")
             yesterday_ramp = yesterday_data.get("rampRate")
             
-            ctl = round(yesterday_ctl * ctl_decay, 2) if yesterday_ctl else None
-            atl = round(yesterday_atl * atl_decay, 2) if yesterday_atl else None
+            # Decayed values = what fitness looks like with zero training today
+            decayed_ctl = round(yesterday_ctl * ctl_decay, 2) if yesterday_ctl else None
+            decayed_atl = round(yesterday_atl * atl_decay, 2) if yesterday_atl else None
+            decayed_ramp = round(yesterday_ramp * ctl_decay, 2) if yesterday_ramp else None
         except:
-            ctl = None
-            atl = None
+            decayed_ctl = None
+            decayed_atl = None
+            decayed_ramp = None
             yesterday_ramp = None
-            ctl_decay = math.exp(-1/42)  # Define decay even on error for ramp rate calc
-        
-        tsb = round(ctl - atl, 2) if (ctl is not None and atl is not None) else None
         
         latest_wellness = wellness[-1] if wellness else {}
         
@@ -331,20 +331,26 @@ class IntervalsSync:
         past_events = [e for e in events if e.get("start_date_local", "")[:10] <= today]
         future_events = [e for e in events if e.get("start_date_local", "")[:10] >= today]
         
-        # Smart ramp rate: check if today's planned workouts are completed
-        # API ramp_rate includes planned workouts, so if they're not done yet, it's inflated
+        # Smart fitness metrics: same logic for CTL, ATL, TSB, and ramp rate
+        # API values include planned workouts → inflated if not yet completed
+        # Decayed values = yesterday × decay → accurate baseline before any training today
         todays_planned = [e for e in events if e.get("start_date_local", "")[:10] == today]
         todays_activities = [a for a in activities_display if a.get("start_date_local", "")[:10] == today]
         
-        # Determine which ramp rate to use
         if todays_planned and not todays_activities:
-            # Planned workouts exist but nothing completed yet → use yesterday's ramp (decayed)
-            smart_ramp_rate = round(yesterday_ramp * ctl_decay, 2) if yesterday_ramp else api_ramp_rate
-            ramp_rate_note = "Using decayed yesterday value (today's planned workouts not yet completed)"
+            # Planned workouts exist but nothing completed → decay (API values are inflated)
+            ctl = decayed_ctl
+            atl = decayed_atl
+            smart_ramp_rate = decayed_ramp if decayed_ramp else api_ramp_rate
+            fitness_source = "Decayed from yesterday (today's planned workouts not yet completed)"
         else:
-            # No planned workouts OR workouts completed → API value is correct
-            smart_ramp_rate = round(api_ramp_rate, 2) if api_ramp_rate else None
-            ramp_rate_note = "Using API value (no uncompleted planned workouts)"
+            # No planned workouts OR workouts completed → API values are accurate
+            ctl = round(api_ctl, 2) if api_ctl else decayed_ctl
+            atl = round(api_atl, 2) if api_atl else decayed_atl
+            smart_ramp_rate = round(api_ramp_rate, 2) if api_ramp_rate else decayed_ramp
+            fitness_source = "From Intervals.icu API (reflects completed workouts)"
+        
+        tsb = round(ctl - atl, 2) if (ctl is not None and atl is not None) else None
         
         # Get both FTP values (user-set, not estimated)
         current_ftp_indoor = cycling_settings.get("indoor_ftp") if cycling_settings else None
@@ -398,7 +404,7 @@ class IntervalsSync:
                 "last_updated": datetime.now().isoformat(),
                 "data_range_days": days_back,
                 "extended_range_days": days_for_acwr,
-                "version": "3.1.0"
+                "version": "3.2.0"
             },
             "summary": self._compute_activity_summary(activities_display, days_back),
             "current_status": {
@@ -407,8 +413,7 @@ class IntervalsSync:
                     "atl": atl,
                     "tsb": tsb,
                     "ramp_rate": smart_ramp_rate,
-                    "ramp_rate_note": ramp_rate_note,
-                    "fitness_note": "CTL/ATL/TSB calculated via decay formula (API values include planned workouts)"
+                    "fitness_source": fitness_source
                 },
                 "thresholds": {
                     "ftp_outdoor": current_ftp_outdoor,
