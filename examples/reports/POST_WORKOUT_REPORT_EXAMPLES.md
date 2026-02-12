@@ -23,7 +23,7 @@ Quality (Z4+): 0%
 HR: 118 avg / 131 max
 HR zones: 100.0% Zone 1
 Cadence: 88 avg
-Decoupling: 2.14 (good)
+Decoupling: 2.14% (good)
 Variability Index: 1.01 (excellent)
 Calories: 1396 kcal
 Carbs used: 268 g
@@ -72,7 +72,7 @@ Quality (Z4+): 37.3%
 HR: 138 avg / 162 max
 HR zones: 32.1% Zone 1, 28.5% Zone 2, 14.2% Zone 3, 25.2% Zone 4
 Cadence: 85 avg
-Decoupling: 3.82 (acceptable)
+Decoupling: 3.82% (acceptable)
 Variability Index: 1.15
 Calories: 962 kcal
 Carbs used: 196 g
@@ -114,7 +114,7 @@ Quality (Z4+): 0%
 HR: 115 avg / 128 max
 HR zones: 100.0% Zone 1
 Cadence: 86 avg
-Decoupling: 1.92 (good)
+Decoupling: 1.92% (good)
 Variability Index: 1.01 (excellent)
 Calories: 800 kcal
 Carbs used: 153 g
