@@ -11,6 +11,7 @@ The data mirror automatically syncs your Intervals.icu metrics to a GitHub repos
 **Result:**
 - `https://raw.githubusercontent.com/[you]/[repo]/main/latest.json`
 - `https://raw.githubusercontent.com/[you]/[repo]/main/history.json`
+- `https://raw.githubusercontent.com/[you]/[repo]/main/ftp_history.json`
 
 ---
 
@@ -24,28 +25,30 @@ The data mirror automatically syncs your Intervals.icu metrics to a GitHub repos
 
 ## Step 1: Get Your Intervals.icu Credentials
 
-1. Log in to [Intervals.icu](https://intervals.icu)
-2. Go to **Settings** (gear icon)
-3. Find your **Athlete ID** (shown in URL, e.g., `i123456`)
-4. Scroll to **API Key** section → Generate or copy your API key
-
-Save both values securely.
+**Finding your credentials:**
+- **Athlete ID**: Intervals.icu → Settings → bottom of page (e.g., `i123456`)
+- **API Key**: Intervals.icu → Settings → Developer Settings → API Key
 
 ---
 
-## Step 2: Create GitHub Repository
+## Step 2: Set Up GitHub Repository
+
+### Option A: Fork (fastest)
+
+1. Go to [github.com/CrankAddict/section-11](https://github.com/CrankAddict/section-11) → **Fork**
+2. Rename to `training-data` or similar
+3. Set to **Private** in repo settings
+4. Skip to **Step 3: Add Repository Secrets**
+
+### Option B: Create new repo
 
 1. Go to [github.com/new](https://github.com/new)
-2. Name it something like `training-data` or `t1-data`
-3. Set to **Private** (recommended) or Public (required for basic AI chat access without agent integration)
-4. Check **Add a README file**
+2. Name it something like `training-data`
+3. Set to **Private** (recommended) or Public (required for AI platform access without agent integration)
+4. Check Add a README file
 5. Click **Create repository**
 
----
-
-## Step 3: Add Files to Repository
-
-Upload these files to your repository:
+Then add these files to your repository:
 
 | File | Location | Description |
 |------|----------|-------------|
@@ -56,12 +59,12 @@ Upload these files to your repository:
 **To create the workflow folder:**
 1. Click "Add file" → "Create new file"
 2. Name it: `.github/workflows/auto-sync.yml`
-3. Paste the workflow content
+3. Paste the workflow content from examples/json-auto-sync/auto-sync.yml
 4. Commit
 
 ---
 
-## Step 4: Add Repository Secrets
+## Step 3: Add Repository Secrets
 
 1. Go to your repo → **Settings** → **Secrets and variables** → **Actions**
 2. Click **New repository secret**
@@ -76,7 +79,7 @@ Upload these files to your repository:
 
 ---
 
-## Step 5: Enable GitHub Actions
+## Step 4: Enable GitHub Actions
 
 1. Go to your repo → **Actions** tab
 2. If prompted, enable workflows
@@ -87,15 +90,19 @@ Wait 30-60 seconds, then check if `latest.json` has been updated.
 
 ---
 
-## Step 6: Verify
+## Step 5: Verify
 
 Your data should now be accessible at:
 ```
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/latest.json
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/history.json
+https://raw.githubusercontent.com/[your-username]/[repo-name]/main/ftp_history.json
 ```
 
-Test by opening the latest.json URL in your browser — you should see your training data as JSON. `history.json` is generated automatically on first run with tiered granularity: daily (90 days), weekly (180 days), and monthly (up to 3 years).
+Test by opening the URLs in your browser — you should see your training data as JSON.
+
+- `latest.json` — current 7-day snapshot with activities, wellness, fitness metrics, and derived Section 11 values
+- `history.json` — longitudinal data with tiered granularity: daily (90 days), weekly (180 days), and monthly (up to 3 years). Generated automatically on first run, regenerated when outdated.
 
 ---
 
@@ -155,9 +162,10 @@ Your JSON URLs:
 ```
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/latest.json
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/history.json
+https://raw.githubusercontent.com/[your-username]/[repo-name]/main/ftp_history.json
 ```
 
-Provide both URLs to your AI coach — `latest.json` has the current 7-day snapshot and `history.json` provides longitudinal context for trend analysis.
+Provide all 3 URLs to your AI coach — `latest.json` has the current 7-day snapshot and `history.json` provides longitudinal context for trend analysis.
 
 ---
 
@@ -187,7 +195,7 @@ Provide both URLs to your AI coach — `latest.json` has the current 7-day snaps
 
 ### 404 error on JSON URL
 - Ensure `latest.json` exists in repo root
-- If using a private repo, normal AI chats cannot access these URLs — use an agent platform or upload files manually (see "Using Private Repos with AI Agents" above)
+- If using a private repo, normal AI chats cannot access these URLs — use an agent platform or upload files manually (see "Using Private Repos with AI Agents" below)
 - If using a public repo, verify URL format (use `main` not `master`)
 
 ---
