@@ -18,6 +18,7 @@ Power: [XXX] W avg / [XXX] W NP
 Power zones: [XX.X]% Zone 1, [XX.X]% Zone 2
 Grey Zone (Z3): [XX]%
 Quality (Z4+): [XX]%
+Session profile: [Classification]
 HR: [XXX] avg / [XXX] max
 HR zones: [XX.X]% Zone 1, [XX.X]% Zone 2
 Cadence: [XX] avg
@@ -30,7 +31,7 @@ TSS: [XXX] (planned [XXX])
 [Repeat block for additional sessions]
 
 Weekly totals:
-Polarization: Z1+Z2 [XX]%, Z3 [X.X]%, Z4+ [X.X]%
+Polarization: Z1+Z2 [XX]%, Z3 [X]%, Z4+ [X]% — [Classification] (PI: [X.XX])
 TSB: [X.XX]
 CTL: [XX.XX]
 ATL: [XX.XX]
