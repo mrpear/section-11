@@ -464,6 +464,6 @@ This work is licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/
 - **Examples:** [examples/](examples/)
 - **Report Templates:** [examples/reports/](examples/reports/)
 - **Intervals.icu:** [intervals.icu](https://intervals.icu)
-- **Discussion:** [Intervals.icu Forum](https://forum.intervals.icu)
+- **Discussion:** [Intervals.icu Forum Thread]([https://forum.intervals.icu](https://forum.intervals.icu/t/section-11-open-protocol-for-ai-endurance-coaching-chatgpt-claude-grok-mistral/120602/8))
 
 ---
