@@ -12,6 +12,7 @@ See templates and examples below for annotated reference.
 **Pre-Workout Reports must include:**
 - Readiness assessment (HRV, RHR, Sleep vs baselines)
 - Load context (TSB, ACWR, Load/Recovery, Monotony if elevated)
+- Capability snapshot (Durability 7d mean + trend; TID drift if not consistent)
 - Today's planned workout (or rest day + next session preview)
 - Go/Modify/Skip recommendation with rationale
 
@@ -19,13 +20,14 @@ See templates and examples below for annotated reference.
 - One-line session summary
 - Completed session metrics (power, HR, zones, decoupling, VI, TSS vs planned)
 - Plan compliance assessment
-- Weekly running totals (polarization, CTL, ATL, TSB, ACWR, hours, TSS)
+- Weekly running totals (polarization, durability 7d/28d + trend, TID 28d + drift, CTL, ATL, TSB, ACWR, hours, TSS)
 - Overall coach note (2-4 sentences: compliance, key quality observations, load context, recovery note)
 
 **Weekly Reports must include:**
 - Session breakdown with compliance status (✅/⚠️/❌)
 - Quality session detail (top 2-3 intensity sessions: target vs actual, decoupling, VI)
-- Polarization with Grey Zone and Quality tracking
+- Polarization with Grey Zone and Quality tracking, plus 7d vs 28d TID classification and drift status
+- Durability subsection (7d/28d means, qualifying sessions, trend, high-drift count)
 - Fitness deltas (CTL, ATL, TSB start → end with Δ)
 - ACWR with acute/chronic components shown
 - Wellness trends with directional arrows and threshold labels
@@ -35,7 +37,8 @@ See templates and examples below for annotated reference.
 - Week-by-week volume progression with CTL trajectory
 - Compliance with reasons for misses/modifications
 - Key performance markers with target comparison
-- Polarization by week (catches grey zone creep)
+- Polarization by week (catches grey zone creep), plus TID 28d as block-scale classification
+- Durability by week (catches aerobic efficiency regression across the block)
 - Wellness block-over-block comparison with assessment labels
 - Phase Progression Check (criteria met Y/N, recommendation, rationale)
 - Next block plan with specific targets
@@ -68,6 +71,7 @@ Generated **before** a planned session. Includes:
 - Weather and coach note (optional, if location known)
 - Current readiness (HRV, RHR, Sleep vs baselines)
 - Load context (TSB, ACWR, Load/Recovery, Monotony if > 2.3)
+- Capability snapshot (Durability 7d mean + trend; TID drift if not consistent)
 - Planned workout summary (target power/HR, duration, TSS)
 - Go/Modify/Skip recommendation with rationale
 
@@ -77,13 +81,15 @@ Generated **after** a completed session. Includes:
 - Key metrics (power, HR, decoupling, VI, carbs)
 - Zone distribution (Grey Zone and Quality tracking)
 - Load impact (updated CTL, ATL, TSB, weekly totals)
+- Capability update (Durability 7d/28d + trend, TID 28d + drift in weekly totals)
 - Coaching interpretation
 
 ### Weekly Summary (~35-45 lines)
 Generated **end of training week** (Saturday or Sunday morning). Includes:
 - Session breakdown with compliance status for every day
 - Quality session detail for top 2-3 intensity sessions
-- Polarization (Z1+Z2, Grey Zone, Quality)
+- Polarization (Z1+Z2, Grey Zone, Quality) with 7d vs 28d TID + drift status
+- Durability subsection (7d/28d means, qualifying sessions, trend, high-drift count)
 - Fitness deltas with ramp rate and ACWR breakdown
 - Wellness trends with week-over-week comparison and directional labels
 - Section 11 flags triggered during the week
@@ -94,7 +100,8 @@ Generated **end of each 3-5 week block**. Includes:
 - Week-by-week volume and CTL progression
 - Compliance summary with reasons for modifications
 - Performance marker tracking (sweetspot, VO2max, decoupling trends)
-- Polarization by week to catch grey zone creep
+- Polarization by week to catch grey zone creep, plus TID 28d as block-scale classification
+- Durability by week to catch aerobic efficiency regression across the block
 - Wellness block-over-block comparison with assessment labels
 - Phase Progression Check with explicit criteria evaluation
 - Next block plan with targets and key changes
