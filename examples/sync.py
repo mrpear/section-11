@@ -4,7 +4,15 @@ Intervals.icu → GitHub/Local JSON Export
 Exports training data for LLM access.
 Supports both automated GitHub sync and manual local export.
 
-Version 3.3.4 - Seiler TID & Polarization Index
+Version 3.4.0 - Aggregate Decoupling + Dual-Timeframe TID
+  - Durability trend: rolling 7d/28d mean decoupling from steady-state sessions
+  - Session filter: VI ≤ 1.05, VI > 0, ≥ 90min, power data required
+  - Dual-timeframe TID: 28d Seiler classification alongside existing 7d
+  - TID drift detection: consistent/shifting/acute_depolarization
+  - New 'capability' namespace in derived_metrics for capability-layer metrics
+  - Alert integration for durability declining/alarm and TID drift
+
+Version 3.4.0 - Seiler TID & Polarization Index
   - Seiler 3-zone TID classification (Polarized/Pyramidal/Threshold/HIT/Base)
   - Treff Polarization Index (PI) with proper edge-case handling
   - Dual calculation: all-sport and primary-sport TID (like monotony)
@@ -45,7 +53,7 @@ class IntervalsSync:
     HISTORY_FILE = "history.json"
     UPSTREAM_REPO = "CrankAddict/section-11"
     CHANGELOG_FILE = "changelog.json"
-    VERSION = "3.3.4"
+    VERSION = "3.4.0"
 
     # Sport family mapping for per-sport monotony calculation
     # Multi-sport athletes get inflated total monotony when cross-training
@@ -449,6 +457,7 @@ class IntervalsSync:
                 "instruction_for_ai": "DO NOT calculate totals from individual activities. Use the pre-calculated values in 'summary', 'weekly_summary', and 'derived_metrics' sections below. These are already computed accurately from the API data.",
                 "data_period": f"Last {days_back} days (including today)",
                 "extended_data_note": f"ACWR and baselines calculated from {days_for_acwr} days of data",
+                "capability_metrics_note": "The 'capability' block in derived_metrics contains durability trend (aggregate decoupling 7d/28d) and TID comparison (7d vs 28d distribution drift). These measure HOW the athlete expresses fitness, not just load. Use these for coaching context alongside traditional load metrics. Durability trend direction matters more than absolute values.",
                 "quick_stats": {
                     "total_training_hours": round(sum(act.get("moving_time", 0) for act in activities_display) / 3600, 2),
                     "total_activities": len(activities_display),
@@ -677,6 +686,28 @@ class IntervalsSync:
                 cls_ps = seiler_tid_primary.get("classification")
                 print(f"  Seiler TID ({primary_sport}): {cls_ps}, PI={pi_ps}")
 
+        # === SEILER TID 28d (Chronic Training Intensity Distribution) ===
+        # Same method, wider window — for acute vs chronic TID comparison
+        seiler_tid_28d_all = self._build_seiler_tid(activities_28d)
+
+        seiler_tid_28d_primary = None
+        if primary_sport:
+            seiler_tid_28d_primary = self._build_seiler_tid(
+                activities_28d, sport_family_filter=primary_sport
+            )
+            seiler_tid_28d_primary["sport"] = primary_sport
+
+        if self.debug:
+            pi_28d = seiler_tid_28d_all.get("polarization_index")
+            cls_28d = seiler_tid_28d_all.get("classification")
+            print(f"  Seiler TID 28d (all): {cls_28d}, PI={pi_28d}")
+
+        # === TID COMPARISON (7d vs 28d drift detection) ===
+        tid_comparison = self._calculate_tid_comparison(seiler_tid_all, seiler_tid_28d_all)
+
+        # === DURABILITY TREND (aggregate decoupling) ===
+        durability = self._calculate_durability(activities_7d, activities_28d)
+
         # === CONSISTENCY INDEX ===
         consistency_index, consistency_details = self._calculate_consistency_index(
             activities_for_consistency, past_events
@@ -793,6 +824,14 @@ class IntervalsSync:
             # Tier 3: Seiler TID (Training Intensity Distribution)
             "seiler_tid_7d": seiler_tid_all,
             "seiler_tid_7d_primary": seiler_tid_primary,
+            "seiler_tid_28d": seiler_tid_28d_all,
+            "seiler_tid_28d_primary": seiler_tid_28d_primary,
+            
+            # Capability metrics (how fitness is expressed, not just load)
+            "capability": {
+                "durability": durability,
+                "tid_comparison": tid_comparison,
+            },
             
             # Tier 3: Consistency & Compliance
             "consistency_index": consistency_index,
@@ -1255,6 +1294,145 @@ class IntervalsSync:
             "classification": classification
         }
 
+    def _calculate_durability(self, activities_7d: List[Dict],
+                               activities_28d: List[Dict]) -> Dict:
+        """
+        Calculate aggregate decoupling as a durability trend.
+
+        Filters to steady-state power sessions only:
+        - decoupling is not None
+        - variability_index is not None and > 0 and <= 1.05
+        - moving_time >= 5400 (90 minutes)
+
+        Per Maunder et al. (2021), Rothschild et al. (2025): meaningful
+        cardiac drift requires prolonged exercise. 90 min is the practical
+        field floor where drift becomes detectable.
+
+        Negative decoupling is included — it indicates HR drifted down
+        relative to power (strong durability or cooling conditions).
+
+        Returns dict with 7d/28d means, high-drift counts, qualifying
+        session counts, and trend direction.
+        """
+        def _filter_qualifying(activities: List[Dict]) -> List[float]:
+            """Return decoupling values from qualifying sessions."""
+            qualifying = []
+            for act in activities:
+                # Raw API field names (before _format_activities)
+                dec = act.get("icu_hr_decoupling") or act.get("decoupling")
+                vi = act.get("icu_variability_index")
+                mt = act.get("moving_time", 0) or 0
+
+                if (dec is not None
+                        and vi is not None
+                        and vi > 0
+                        and vi <= 1.05
+                        and mt >= 5400):
+                    qualifying.append(dec)
+            return qualifying
+
+        vals_7d = _filter_qualifying(activities_7d)
+        vals_28d = _filter_qualifying(activities_28d)
+
+        # Compute means (need >= 2 qualifying sessions)
+        mean_7d = round(statistics.mean(vals_7d), 2) if len(vals_7d) >= 2 else None
+        mean_28d = round(statistics.mean(vals_28d), 2) if len(vals_28d) >= 2 else None
+
+        # High drift counts (> 5%)
+        high_drift_7d = sum(1 for v in vals_7d if v > 5.0)
+        high_drift_28d = sum(1 for v in vals_28d if v > 5.0)
+
+        # Trend (requires both windows)
+        trend = None
+        if mean_7d is not None and mean_28d is not None:
+            delta = mean_7d - mean_28d
+            if delta < -1.0:
+                trend = "improving"
+            elif delta > 1.0:
+                trend = "declining"
+            else:
+                trend = "stable"
+
+        if self.debug:
+            print(f"  Durability: 7d={mean_7d} ({len(vals_7d)} sessions), "
+                  f"28d={mean_28d} ({len(vals_28d)} sessions), trend={trend}")
+
+        return {
+            "mean_decoupling_7d": mean_7d,
+            "mean_decoupling_28d": mean_28d,
+            "high_drift_count_7d": high_drift_7d,
+            "high_drift_count_28d": high_drift_28d,
+            "qualifying_sessions_7d": len(vals_7d),
+            "qualifying_sessions_28d": len(vals_28d),
+            "trend": trend,
+            "note": ("Steady-state power sessions only (VI <= 1.05, VI > 0, "
+                     ">= 90min, power data). Negative decoupling = strong "
+                     "durability. Trend compares 7d vs 28d mean "
+                     "(+/-1% = stable).")
+        }
+
+    def _calculate_tid_comparison(self, seiler_tid_7d: Dict,
+                                   seiler_tid_28d: Dict) -> Dict:
+        """
+        Compare 7d vs 28d Seiler TID to detect distribution drift.
+
+        Drift categories:
+        - consistent: 7d and 28d classification match
+        - shifting: 7d and 28d classification differ
+        - acute_depolarization: 7d PI < 2.0 AND 28d PI >= 2.0
+
+        Returns dict with classifications, PI values, delta, and drift.
+        """
+        cls_7d = seiler_tid_7d.get("classification")
+        cls_28d = seiler_tid_28d.get("classification")
+        pi_7d = seiler_tid_7d.get("polarization_index")
+        pi_28d = seiler_tid_28d.get("polarization_index")
+
+        # Null handling: if either window has no data, no comparison
+        if cls_7d is None or cls_28d is None:
+            return {
+                "classification_7d": cls_7d,
+                "classification_28d": cls_28d,
+                "pi_7d": pi_7d,
+                "pi_28d": pi_28d,
+                "pi_delta": None,
+                "drift": None,
+                "note": ("Compares 7d vs 28d Seiler TID to detect "
+                         "distribution shifts. Insufficient data in "
+                         "one or both windows.")
+            }
+
+        # PI delta (positive = more polarized acutely)
+        pi_delta = None
+        if pi_7d is not None and pi_28d is not None:
+            pi_delta = round(pi_7d - pi_28d, 2)
+
+        # Drift classification
+        # Check acute_depolarization first (more specific than shifting)
+        if (pi_7d is not None and pi_28d is not None
+                and pi_7d < 2.0 and pi_28d >= 2.0):
+            drift = "acute_depolarization"
+        elif cls_7d != cls_28d:
+            drift = "shifting"
+        else:
+            drift = "consistent"
+
+        if self.debug:
+            print(f"  TID comparison: 7d={cls_7d} (PI={pi_7d}), "
+                  f"28d={cls_28d} (PI={pi_28d}), drift={drift}")
+
+        return {
+            "classification_7d": cls_7d,
+            "classification_28d": cls_28d,
+            "pi_7d": pi_7d,
+            "pi_28d": pi_28d,
+            "pi_delta": pi_delta,
+            "drift": drift,
+            "note": ("Compares 7d vs 28d Seiler TID to detect "
+                     "distribution shifts. pi_delta positive = "
+                     "more polarized acutely.")
+        }
+
     def _detect_phase(self, acwr: float, ri: float, quality_intensity_pct: float,
                       hard_days_per_week: int,
                       strain: float, monotony: float, tsb: float, ctl: float) -> Tuple[str, List[str]]:
@@ -1546,6 +1724,81 @@ class IntervalsSync:
                         "persistence_days": rhr_high_days,
                         "tier": 1
                     })
+        
+        # --- Durability Alerts (v3.4.0) ---
+        # Aggregate decoupling trend from capability metrics
+        capability = derived_metrics.get("capability", {})
+        durability = capability.get("durability", {})
+        dur_mean_7d = durability.get("mean_decoupling_7d")
+        dur_mean_28d = durability.get("mean_decoupling_28d")
+        dur_trend = durability.get("trend")
+        dur_high_drift_7d = durability.get("high_drift_count_7d", 0)
+
+        # Alarm: sustained high decoupling (28d mean > 5%)
+        if dur_mean_28d is not None and dur_mean_28d > 5.0:
+            alerts.append({
+                "metric": "durability",
+                "value": dur_mean_28d,
+                "severity": "alarm",
+                "threshold": "28d mean > 5%",
+                "context": f"Sustained high decoupling ({dur_mean_28d}% 28d mean). Aerobic efficiency concern — review volume and recovery.",
+                "persistence_days": None,
+                "tier": 3
+            })
+        # Warning: declining trend with >2% delta
+        elif (dur_trend == "declining" and dur_mean_7d is not None
+              and dur_mean_28d is not None
+              and (dur_mean_7d - dur_mean_28d) > 2.0):
+            alerts.append({
+                "metric": "durability",
+                "value": dur_mean_7d,
+                "severity": "warning",
+                "threshold": "7d > 28d by > 2%",
+                "context": f"Durability declining: 7d mean decoupling {dur_mean_7d}% vs 28d {dur_mean_28d}%. Check fatigue and recovery.",
+                "persistence_days": None,
+                "tier": 3
+            })
+
+        # Warning: repeated poor durability (>= 3 high-drift sessions in 7d)
+        if dur_high_drift_7d >= 3:
+            alerts.append({
+                "metric": "durability",
+                "value": dur_high_drift_7d,
+                "severity": "warning",
+                "threshold": ">= 3 sessions with >5% decoupling in 7d",
+                "context": f"Repeated poor durability: {dur_high_drift_7d} sessions with >5% decoupling in last 7 days.",
+                "persistence_days": None,
+                "tier": 3
+            })
+
+        # --- TID Drift Alerts (v3.4.0) ---
+        tid_comparison = capability.get("tid_comparison", {})
+        tid_drift = tid_comparison.get("drift")
+
+        if tid_drift == "acute_depolarization":
+            pi_7d = tid_comparison.get("pi_7d")
+            pi_28d = tid_comparison.get("pi_28d")
+            alerts.append({
+                "metric": "tid_distribution",
+                "value": pi_7d,
+                "severity": "warning",
+                "threshold": "7d PI < 2.0, 28d PI >= 2.0",
+                "context": f"Acute depolarization: 7d PI {pi_7d} vs 28d PI {pi_28d}. Grey zone or threshold work displacing polarized structure.",
+                "persistence_days": None,
+                "tier": 3
+            })
+        elif tid_drift == "shifting":
+            cls_7d = tid_comparison.get("classification_7d")
+            cls_28d = tid_comparison.get("classification_28d")
+            alerts.append({
+                "metric": "tid_distribution",
+                "value": cls_7d,
+                "severity": "warning",
+                "threshold": "7d/28d classification mismatch",
+                "context": f"TID shift: 7d {cls_7d} vs 28d {cls_28d}. Training distribution changing.",
+                "persistence_days": None,
+                "tier": 3
+            })
         
         # Sort by tier (lower = more important), then severity
         severity_order = {"alarm": 0, "warning": 1, "info": 2}
