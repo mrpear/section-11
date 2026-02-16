@@ -45,6 +45,7 @@ Polarization (block average):
   Z3 (Grey Zone): [X.X]% (target <5%)
   Z4+ (Quality): [X.X]% (target ~20% of intensity sessions)
   Classification: [Classification] (PI: [X.XX])
+  TID 28d (block-scale): [Classification] (PI: [X.XX])
   Hard days/week avg: [X.X]
 
 Polarization by Week:
@@ -52,6 +53,13 @@ Polarization by Week:
   Wk 2: Z1+Z2 [XX]%, Z3 [X]%, Z4+ [X]% — [Classification] (PI: [X.XX])
   Wk 3: Z1+Z2 [XX]%, Z3 [X]%, Z4+ [X]% — [Classification] (PI: [X.XX])
   Wk 4: Z1+Z2 [XX]%, Z3 [X]%, Z4+ [X]% — [Classification] (PI: [X.XX])
+
+Durability by Week:
+  Wk 1: mean dec [X.X]%, [X] qualifying, [X] high-drift
+  Wk 2: mean dec [X.X]%, [X] qualifying, [X] high-drift
+  Wk 3: mean dec [X.X]%, [X] qualifying, [X] high-drift
+  Wk 4: mean dec [X.X]%, [X] qualifying, [X] high-drift
+  Block trend: [improving/stable/declining]
 
 Wellness (block avg vs previous block):
   HRV: [XX] ms (prev block: [XX] ms) [↑/↓/→] [assessment]
@@ -95,6 +103,8 @@ Next Block Plan:
 | **Performance Markers** | Best efforts + target comparison | Shows whether stimulus is producing adaptation |
 | **Decoupling trend** | Long ride aerobic efficiency | Improving decoupling = aerobic base building |
 | **Polarization by Week** | Weekly zone distributions | Catches grey zone creep within a block |
+| **Durability by Week** | Weekly mean decoupling from steady-state sessions | VI ≤ 1.05, ≥ 90min. Shows aerobic efficiency trajectory across block |
+| **TID 28d** | Block-scale Seiler classification | 28d window roughly matches block length; confirms or challenges weekly TID |
 | **Wellness assessment** | Directional + threshold label | "declining — monitor" / "stable — no concern" / "improving" |
 | **Phase Progression Check** | Section 11 phase detection criteria | Explicitly states whether block met progression criteria |
 | **Section 11 Flags** | All flags triggered during block | With dates and how they were resolved |
@@ -121,6 +131,7 @@ Next Block Plan:
 
 - **Week-by-week CTL** is critical — the trajectory tells a different story than just start/end
 - **Polarization by Week** catches grey zone creep that block averages can mask
+- **Durability by Week** catches aerobic efficiency regression that single-session decoupling can miss; the block trend is the headline
 - **Phase Progression Check** makes the protocol's decision logic transparent to the athlete
 - **Next Block Plan** should flow directly from the Phase Progression Check — if criteria aren't met, explain what the next block does differently
 - Keep "Assessment" to coaching interpretation — the data is already presented above
