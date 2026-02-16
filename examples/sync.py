@@ -12,7 +12,7 @@ Version 3.4.0 - Aggregate Decoupling + Dual-Timeframe TID
   - New 'capability' namespace in derived_metrics for capability-layer metrics
   - Alert integration for durability declining/alarm and TID drift
 
-Version 3.4.0 - Seiler TID & Polarization Index
+Version 3.3.4 - Seiler TID & Polarization Index
   - Seiler 3-zone TID classification (Polarized/Pyramidal/Threshold/HIT/Base)
   - Treff Polarization Index (PI) with proper edge-case handling
   - Dual calculation: all-sport and primary-sport TID (like monotony)
