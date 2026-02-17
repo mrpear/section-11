@@ -1,44 +1,64 @@
 {
-  "generated_at": "2026-01-20T12:00:00.000000",
+  "generated_at": "2026-01-19T12:00:00.000000",
   "source": "Intervals.icu API",
-  "sync_version": "3.3.2",
+  "sync_version": "3.4.0",
   "data_range": {
     "earliest": "2023-03-01",
-    "latest": "2026-01-20",
+    "latest": "2026-01-19",
     "total_months": 34
   },
   "ftp_timeline": [
     {
       "date": "2026-01-05",
-      "ftp": 270,
+      "ftp": 275,
       "type": "indoor",
       "source": "FTP"
     },
     {
       "date": "2026-01-05",
-      "ftp": 283,
+      "ftp": 285,
+      "type": "outdoor",
+      "source": "FTP"
+    },
+    {
+      "date": "2025-11-10",
+      "ftp": 268,
+      "type": "indoor",
+      "source": "FTP"
+    },
+    {
+      "date": "2025-11-10",
+      "ftp": 280,
       "type": "outdoor",
       "source": "FTP"
     }
   ],
   "data_gaps": [
     {
-      "period": "2024-12-22 to 2025-01-05",
-      "days_missing": 14
+      "period": "2023-07-20 to 2023-07-23",
+      "days_missing": 4
     },
     {
-      "period": "2025-07-10 to 2025-07-20",
-      "days_missing": 10
+      "period": "2023-11-04 to 2023-11-20",
+      "days_missing": 17
+    },
+    {
+      "period": "2024-01-07 to 2024-02-15",
+      "days_missing": 40
+    },
+    {
+      "period": "2024-09-22 to 2024-09-27",
+      "days_missing": 6
     }
   ],
   "summaries": {
     "90d": {
       "avg_weekly_tss": 470.0,
-      "avg_weekly_hours": 11.0,
+      "avg_weekly_hours": 11.5,
       "ctl_start": 58.0,
       "ctl_end": 72.5,
       "total_activities": 68,
-      "rest_days": 8,
+      "rest_days": 5,
       "hard_days": 18
     },
     "180d": {
@@ -69,31 +89,14 @@
   },
   "daily_90d": [
     {
-      "date": "2026-01-20",
-      "total_hours": 1.5,
-      "total_tss": 85,
-      "activity_count": 1,
-      "activity_types": "VirtualRide",
+      "date": "2026-01-19",
+      "total_hours": 2.55,
+      "total_tss": 98,
+      "activity_count": 2,
+      "activity_types": "VirtualRide, Walk",
       "ctl": 72.5,
       "atl": 68.3,
       "tsb": 4.2,
-      "hrv": 65.0,
-      "rhr": 48,
-      "sleep_hours": 7.5,
-      "sleep_quality": 3,
-      "feel": 3,
-      "weight_kg": 72.5,
-      "is_hard_day": false
-    },
-    {
-      "date": "2026-01-19",
-      "total_hours": 2.0,
-      "total_tss": 110,
-      "activity_count": 1,
-      "activity_types": "VirtualRide",
-      "ctl": 72.0,
-      "atl": 70.1,
-      "tsb": 1.9,
       "hrv": 58.0,
       "rhr": 50,
       "sleep_hours": 7.0,
@@ -104,13 +107,13 @@
     },
     {
       "date": "2026-01-18",
-      "total_hours": 0,
-      "total_tss": 0,
-      "activity_count": 0,
-      "activity_types": "",
-      "ctl": 71.5,
-      "atl": 72.4,
-      "tsb": -0.9,
+      "total_hours": 0.75,
+      "total_tss": 35,
+      "activity_count": 1,
+      "activity_types": "VirtualSki",
+      "ctl": 72.0,
+      "atl": 70.1,
+      "tsb": 1.9,
       "hrv": 70.0,
       "rhr": 46,
       "sleep_hours": 8.0,
@@ -123,11 +126,11 @@
       "date": "2026-01-17",
       "total_hours": 4.0,
       "total_tss": 180,
-      "activity_count": 1,
-      "activity_types": "Ride",
-      "ctl": 71.2,
-      "atl": 74.8,
-      "tsb": -3.6,
+      "activity_count": 2,
+      "activity_types": "VirtualRide, Walk",
+      "ctl": 71.5,
+      "atl": 72.4,
+      "tsb": -0.9,
       "hrv": 52.0,
       "rhr": 51,
       "sleep_hours": 6.5,
@@ -135,14 +138,31 @@
       "feel": 4,
       "weight_kg": null,
       "is_hard_day": true
+    },
+    {
+      "date": "2026-01-16",
+      "total_hours": 2.3,
+      "total_tss": 82,
+      "activity_count": 2,
+      "activity_types": "VirtualRide, VirtualSki",
+      "ctl": 71.2,
+      "atl": 74.8,
+      "tsb": -3.6,
+      "hrv": 62.0,
+      "rhr": 48,
+      "sleep_hours": 7.5,
+      "sleep_quality": 3,
+      "feel": 3,
+      "weight_kg": 72.5,
+      "is_hard_day": false
     }
   ],
   "weekly_180d": [
     {
       "week_start": "2026-01-13",
-      "total_hours": 10.5,
-      "total_tss": 450,
-      "activity_count": 5,
+      "total_hours": 12.85,
+      "total_tss": 520,
+      "activity_count": 8,
       "ctl_end": 72.5,
       "atl_end": 68.3,
       "tsb_end": 4.2,
@@ -150,9 +170,9 @@
       "avg_hrv": 62.0,
       "avg_rhr": 49.0,
       "avg_sleep_hours": 7.3,
-      "z1_z2_pct": 78.5,
-      "z3_pct": 12.0,
-      "z4_plus_pct": 9.5,
+      "z1_z2_pct": 88.0,
+      "z3_pct": 2.7,
+      "z4_plus_pct": 9.3,
       "hard_days": 2,
       "longest_ride_hours": 4.0,
       "avg_feel": 3.0,
