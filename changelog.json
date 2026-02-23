@@ -1,8 +1,11 @@
 {
-  "notification_id": "2026-02-18",
+  "notification_id": "2026-02-23",
   "changes": [
-    "sync.py - FIX - 2026-02-18 - v3.4.1: Fixed KeyError on activities with missing 'type' field, defensive .get() on all API response accesses",
-    "sync.py - IMPROVEMENT - 2026-02-18 - v3.4.1: Anonymization logic improved — only outdoor/GPS activity types are blanked, indoor/stationary activities retain original names",
-    "examples/json-auto-sync - UPDATE - 2026-02-18 - Updated latest.json and history.json examples"
+    "SECTION_11.md - FEATURE - 2026-02-23 - v11.6: Race-Week Protocol — day-by-day decision tree for D-7 to D-0 with event-type modifiers, go/no-go checklist, carb loading triggers, opener scheduling, taper tantrums guidance, and three-layer race awareness architecture",
+    "sync.py - FEATURE - 2026-02-23 - v3.5.0: Race calendar with 90-day lookahead, taper onset alerts (D-14 to D-8), race-week detection (RACE_A/RACE_B within 7 days), TSB projection for race day, event duration classification, daily load targets, race-specific alerts",
+    "DOSSIER_TEMPLATE.md - UPDATE - 2026-02-23: Added Priority column to Event-Specific Targets table and Intervals.icu race tagging instructions",
+    "SECTION_11.md - FIX - 2026-02-23 - PR by Paweł Gruszka (@mrpear): Sleep quality scale corrected to 1-4 inverted (1=Great, 4=Poor) matching Intervals.icu API. Decision logic updated to use sleep_quality instead of sleep_score. Feel scale labels added (1=Strong through 5=Weak)",
+    "examples/ - FIX - 2026-02-23 - PR by Paweł Gruszka (@mrpear): Pre-workout template/examples, weekly report template/examples updated from /5 to /4 sleep quality scale. README current_metrics field list corrected",
+    "LICENSE - CHANGE - 2026-02-23: License changed from CC BY-NC 4.0 to MIT"
   ]
 }
