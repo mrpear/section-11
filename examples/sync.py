@@ -369,7 +369,7 @@ class IntervalsSync:
         # Split events into past (for consistency), near future (for planned workouts display), and all future (for race calendar)
         past_events = [e for e in events if e.get("start_date_local", "")[:10] <= today]
         future_events = [e for e in events if e.get("start_date_local", "")[:10] >= today]
-        near_future_events = [e for e in future_events if e.get("start_date_local", "")[:10] <= (datetime.now() + timedelta(days=21)).strftime("%Y-%m-%d")]
+        near_future_events = [e for e in future_events if e.get("start_date_local", "")[:10] <= (datetime.now() + timedelta(days=42)).strftime("%Y-%m-%d")]
         
         # Smart fitness metrics: same logic for CTL, ATL, TSB, and ramp rate
         # API values include planned workouts → inflated if not yet completed
