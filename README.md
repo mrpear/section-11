@@ -1,6 +1,6 @@
 # Section 11 — AI Coaching Protocol
 
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 An open protocol for deterministic, auditable AI-powered endurance coaching. Built for athletes who want AI coaches that follow science, not speculation.
 
@@ -27,7 +27,7 @@ An open protocol for deterministic, auditable AI-powered endurance coaching. Bui
 | [DOSSIER_TEMPLATE.md](DOSSIER_TEMPLATE.md) | Blank athlete dossier template — fill in your own data |
 | [examples/](examples/) | JSON sync setup, report templates, README template, example files |
 | [changelog.json](changelog.json) | Version tracking — consumed by sync.py for update notifications |
-| [LICENSE](LICENSE) | CC BY-NC 4.0 — free for personal use, attribution required |
+| [LICENSE](LICENSE) | MIT — permissive license, commercial use allowed with attribution |
 
 ---
 
@@ -440,22 +440,18 @@ This is an open protocol. Contributions welcome:
 
 ## License
 
-This work is licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
+This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
 
-**You can:**
-- Use it for personal training
-- Share and adapt it
-- Build non-commercial tools with it
+You can:
+- Use it for personal or commercial projects
+- Copy, modify, and distribute it
+- Include it in closed-source or open-source tools
 
-**You must:**
-- Give appropriate credit
-- Link to the license
-- Indicate if changes were made
+You must:
+- Include the copyright notice
+- Include the MIT license text in copies or substantial portions of the software
 
-**You cannot:**
-- Use it for commercial purposes without permission
-
-**Commercial licensing:** Contact crankaddict69@proton.me
+The software is provided “as is”, without warranty of any kind.
 
 ---
 

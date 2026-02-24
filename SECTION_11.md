@@ -1,10 +1,21 @@
 # Section 11 — AI Coach Protocol
 
-**Protocol Version:** 11.5  
-**Last Updated:** 2026-02-17  
-**License:** [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
+**Protocol Version:** 11.6  
+**Last Updated:** 2026-02-23
+**License:** [MIT](https://opensource.org/licenses/MIT)
+
 
 ### Changelog
+
+**v11.6 — Race-Week Protocol:**
+- Added Race-Week Protocol: day-by-day decision tree for D-7 through D-0 before goal events
+- Added three-layer race awareness architecture (90-day calendar → 14-day taper onset → 7-day race week)
+- Added event-type modifiers (short/medium/long) with duration-specific TSB targets, opener intensity, carb loading triggers
+- Added go/no-go checklist (only illness/injury can recommend DNS; HRV and sleep are context only)
+- Added mandatory protocol guidance: taper tantrums, pre-race sleep/HRV, carb loading science
+- Added RACE_B modifications (lighter taper, lower TSB targets, athlete discretion prevails)
+- Race priority detection via Intervals.icu event categories (RACE_A/B/C)
+- Scientific basis: Mujika & Padilla (2003), Bosquet et al. (2007), Wang et al. (2023), Altini (HRV), Pyne et al. (2009)
 
 **v11.5 — Capability Metrics, Seiler TID & Aggregate Durability:**
 - Added Seiler TID Classification System (Treff PI formula, 5-class classifier, 7→3 zone mapping)
@@ -1184,6 +1195,116 @@ See `POST_WORKOUT_TEMPLATE.md` in the examples directory for field reference and
 
 ---
 
+### Race-Week Protocol
+
+**Purpose:** Day-by-day decision framework for the final 7 days before a goal event (D-7 through D-0). This protocol complements the existing Taper phase detection — it does not replace it. The broader 2-week taper is handled by phase detection logic; this protocol governs the final week where day-by-day decisions matter.
+
+**Scientific basis:** Mujika & Padilla (2003), Bosquet et al. (2007), Wang et al. (2023), Altini (HRV during taper), Pyne et al. (2009).
+
+---
+
+#### Three-Layer Race Awareness
+
+The `race_calendar` block in the data mirror provides race awareness at three levels:
+
+**Layer 1 — Race Calendar (D-90+):** Always shows all upcoming races within 90 days, regardless of distance. AI systems should acknowledge upcoming races in general coaching context (e.g., "Your A race is 23 days out, current CTL trajectory looks good for that timeline").
+
+**Layer 2 — Taper Onset Alerts (D-14 to D-8):** When a `RACE_A` event is 8–14 days away, `taper_alert.active = true`. AI systems should:
+- Alert the athlete to begin volume reduction (target 41–60% reduction over 2 weeks)
+- Emphasise maintaining intensity throughout the taper
+- Note that CTL should peak now or within the next few days
+- Remind: reduce session duration, not frequency (frequency reduction ≤20%)
+
+**Layer 3 — Race-Week Protocol (D-7 to D-0):** When a `RACE_A` or `RACE_B` event is ≤7 days away, `race_week.active = true`. The full day-by-day decision tree below activates.
+
+**Race priority detection:**
+- `RACE_A` within 7 days → Full race-week protocol
+- `RACE_B` within 7 days → Race-week protocol with lighter taper (smaller volume reduction acceptable, lower TSB target acceptable)
+- `RACE_C` → Excluded. Training races — no taper adjustments
+
+---
+
+#### Day-by-Day Decision Tree
+
+All load targets are relative to the athlete's current CTL. Normal weekly TSS ≈ CTL × 7. Race-week TSS budget: 40–55% of normal weekly TSS.
+
+| Day | Label | Load (% of CTL) | Zones | Purpose |
+|-----|-------|-----------------|-------|---------|
+| D-7 | Last key session | 75–100% | 3–5 efforts Z4–Z5 (1–3 min) | Fitness confirmation. Verify strong power/HR response. |
+| D-6 | Recovery | ≤30% | Z1–Z2 only | Active recovery. |
+| D-5 | Moderate endurance | 40–60% | Z1–Z2 + 2–3 race-pace touches | Maintain feel without adding fatigue. |
+| D-4 | Easy / rest | 0–40% | Z1–Z2 only | Carb loading begins if applicable. |
+| D-3 | Easy / rest | 0–40% | Z1–Z2 only | "Feeling flat" expected — see note below. |
+| D-2 | Opener | 30–50% | 3–5 efforts Z4–Z6 (20–60s), high cadence, full recovery | Neuromuscular activation. |
+| D-1 | Rest / minimal | 0–20% | Z1 only if active | Final rest, logistics, equipment check. |
+| D-0 | Race day | — | — | Go/no-go assessment. |
+
+---
+
+#### Event-Type Modifiers
+
+Event duration is classified from `moving_time` in the race event data. When `moving_time` is not set: `RACE_A` defaults to `long_endurance`, `RACE_B` defaults to `medium`.
+
+| Duration Class | Moving Time | TSB Target | Opener (D-2) | Carb Loading | Rest vs Easy (D-4/D-3) |
+|---------------|-------------|------------|---------------|-------------|------------------------|
+| Short / intense | < 90 min | +5 to +15 | More intense: 5–6 efforts, include Z5–Z6 | Not required | Full rest acceptable |
+| Medium | 90 min – 3 h | +10 to +20 | Standard: 3–5 efforts Z4–Z5 | Recommended | Either |
+| Long endurance | > 3 h | +10 to +25 | Lighter: 3–4 efforts Z4 only | Critical (10–12 g·kg⁻¹/day from D-4) | Prefer easy endurance over complete rest |
+
+---
+
+#### Go / No-Go Checklist (D-0)
+
+| Check | Green | Flag (context only) | Red |
+|-------|-------|---------------------|-----|
+| TSB | Within target range | >10 below target → note, do not recommend DNS | — |
+| HRV | Logged for context | Never a decision input | Never a race stopper |
+| Sleep | Logged for context | ≤5 h noted for the record | Never a race stopper |
+| Illness / injury | None | Minor (cold, soreness) → note, race at athlete's discretion | Fever, acute injury, GI illness → recommend DNS |
+
+**Only illness or injury can recommend DNS.** HRV and sleep are logged for post-race analysis only.
+
+---
+
+#### Mandatory Protocol Guidance
+
+AI systems must include the following guidance when race-week protocol is active. These are not optional — they correct well-documented athlete misconceptions that lead to poor race-week decisions.
+
+**Taper tantrums (D-4 through D-2):**
+
+> During days D-4 through D-2, athletes commonly experience: reduced motivation, heavy legs, mood changes, phantom aches, and self-doubt. This is a normal physiological response to significant volume reduction ("taper tantrums") and is NOT an indication of lost fitness. Do not prescribe additional training in response to these symptoms. Maintain the taper plan.
+
+**Pre-race sleep and HRV:**
+
+> Pre-race sleep disruption is extremely common and does not predict poor performance. Sleep quality is logged for the record but must NEVER be used as a factor in go/no-go decisions. HRV commonly drops during taper — this is associated with increased sympathetic readiness and has been linked to world-class performance (Altini). Race-morning HRV is almost always suppressed due to anticipatory stress. This is normal, not concerning.
+
+**Carb loading (events ≥ 90 min):**
+
+> For events exceeding 90 minutes, a glycogen-loading strategy is recommended starting at D-4: daily carbohydrate intake of 10–12 g·kg⁻¹. No depletion phase is needed — simply increase carbohydrate intake alongside reduced training volume. Athletes should arrive at racing weight at the start of the taper, not the end.
+
+---
+
+#### RACE_B Modifications
+
+When the target event is `RACE_B` rather than `RACE_A`:
+- Volume reduction may be smaller (race-week TSS budget 50–65% of normal instead of 40–55%)
+- TSB target range is 5 points lower than the event-type default
+- The D-7 "last key session" may be a normal training session rather than a race-specific confirmation
+- Carb loading is optional for medium-duration B races
+- Go/no-go checklist still applies but with lower stakes — athlete discretion prevails
+
+---
+
+#### Edge Cases
+
+**Multiple races in the same window:** If both a `RACE_A` and `RACE_B` fall within 7 days, the protocol targets the `RACE_A`. The `RACE_B` is treated as a training stimulus or secondary event.
+
+**No moving_time set:** When the athlete has not entered an expected duration for the event, default to `long_endurance` for `RACE_A` and `medium` for `RACE_B`. The AI should note the assumption and suggest the athlete update the event in Intervals.icu with expected duration for more precise guidance.
+
+**Travel disruption:** When the athlete reports travel in the days before the race, the recommendation is to reduce training load further than the protocol targets. Travel fatigue compounds taper fatigue — err on the side of more rest.
+
+---
+
 End of Section 11 A. AI Coach Protocol
 
 ---
@@ -1288,7 +1409,7 @@ This subsection defines the formal self-validation and audit metadata structure 
   "validation_metadata": {
     "data_source_fetched": true,
     "json_fetch_status": "success",
-    "protocol_version": "11.5",
+    "protocol_version": "11.6",
     "checklist_passed": [1, 2, 3, 4, 5, 6, "6b", 7, 8, 9, 10],
     "checklist_failed": [],
     "data_timestamp": "2026-01-13T22:32:05Z",

@@ -1,7 +1,7 @@
 # Athlete Training Dossier & Performance Roadmap
 
-**Dossier Version:** v1.1  
-**Protocol Compatibility:** Section 11 v11.5+  
+**Dossier Version:** v1.1.1  
+**Protocol Compatibility:** Section 11 v11.6+  
 **Date:** [YYYY-MM-DD]  
 **Primary Source Systems:** Intervals.icu | [Other platforms]
 
@@ -279,10 +279,12 @@ This document serves as a reference template for endurance athletes using the de
 
 ### Event-Specific Targets (Optional)
 
-| Event/Segment | Year | Target Time | Target Power |
-|---------------|------|-------------|--------------|
-| [Event] | [Year] | [Time] | [W] |
-| [Event] | [Year] | [Time] | [W] |
+| Event/Segment | Year | Priority | Target Time | Target Power |
+|---------------|------|----------|-------------|--------------|
+| [Event] | [Year] | [A/B/C] | [Time] | [W] |
+| [Event] | [Year] | [A/B/C] | [Time] | [W] |
+
+> **Race tagging for automated protocol activation:** Tag races in Intervals.icu as `RACE_A`, `RACE_B`, or `RACE_C` using the event category selector. The race-week protocol (Section 11A) activates automatically for A and B races within 7 days. C races are training races — no taper adjustments. For best results, also set expected duration (`moving_time`) in the event to enable event-type modifiers (carb loading, opener intensity, TSB targets).
 
 ---
 
