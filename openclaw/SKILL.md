@@ -21,6 +21,7 @@ On first use:
    - `latest.json` — current 7-day snapshot + 28-day derived metrics
    - `history.json` — longitudinal data (daily 90d, weekly 180d, monthly 3y)
    - See: https://github.com/CrankAddict/section-11#2-set-up-your-data-mirror-optional-but-recommended
+   - Or for interactive guided setup: have the athlete paste `SETUP_ASSISTANT.md` into any AI chat
 
 3. **Configure heartbeat settings**
    - Fetch template from: https://raw.githubusercontent.com/CrankAddict/section-11/refs/heads/main/openclaw/HEARTBEAT_TEMPLATE.md
