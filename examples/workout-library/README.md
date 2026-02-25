@@ -41,4 +41,4 @@ As long as your sessions follow the template format (name, zones, structure, dur
 
 ## Version
 
-Current: **0.5.0** (Draft)
+Current: **0.5.0**
