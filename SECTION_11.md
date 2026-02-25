@@ -1,11 +1,23 @@
 # Section 11 — AI Coach Protocol
 
-**Protocol Version:** 11.7  
+**Protocol Version:** 11.8  
 **Last Updated:** 2026-02-25
 **License:** [MIT](https://opensource.org/licenses/MIT)
 
 
 ### Changelog
+
+**v11.8 — Per-Sport Threshold Schema:**
+- Added Per-Sport Threshold Schema defining `thresholds.sports` as a map keyed by sport family
+- Thresholds (LTHR, max HR, FTP, threshold pace) are now sport-isolated; cross-sport application is forbidden
+- Field semantics: `ftp` = primary threshold power for sport, `ftp_indoor` = indoor variant (if applicable)
+- Sentinel rules: `threshold_pace = 0` normalizes to null; null pace requires null `pace_units`
+- Fallback rule: missing sport family → skip threshold-dependent checks, flag explicitly
+- Deterministic collision resolution for duplicate sport family mappings
+- FTP Governance clarified as cycling-specific; Benchmark Index uses `thresholds.sports.cycling.ftp`
+- Zone Distribution now requires sport-matched threshold lookup
+- Validation Checklist item 1 updated for sport-family lookup
+- Global estimates (`eftp`, `w_prime`, `w_prime_kj`, `p_max`, `vo2max`) remain at top level
 
 **v11.7 — Workout Reference Library Integration:**
 - Formalised Section 11 B §8 interface to the Workout Reference Library (v0.5.0)
@@ -24,20 +36,7 @@
 - Race priority detection via Intervals.icu event categories (RACE_A/B/C)
 - Scientific basis: Mujika & Padilla (2003), Bosquet et al. (2007), Wang et al. (2023), Altini (HRV), Pyne et al. (2009)
 
-**v11.5 — Capability Metrics, Seiler TID & Aggregate Durability:**
-- Added Seiler TID Classification System (Treff PI formula, 5-class classifier, 7→3 zone mapping)
-- Added Dual-Timeframe TID (7d vs 28d) with drift detection (consistent/shifting/acute_depolarization)
-- Added Aggregate Durability (rolling 7d/28d mean decoupling from steady-state sessions)
-- Added Capability Metrics namespace and concept (how fitness is expressed, not just load)
-- Added Treff et al. (2019), Maunder et al. (2021), Rothschild & Maunder (2025) to Core Evidence-Based Foundations
-- Updated Validated Endurance Ranges with durability and TID drift thresholds
-- Updated Metric Evaluation Hierarchy Tier 3 with capability metrics
-- Updated Output Format Guidelines to include durability and TID 28d in report requirements
-- Updated Communication Style weekly totals to include capability metrics
-- Updated Validation Metadata Schema to v11.5 with capability metric fields
-- Fixed changelog severity terminology: "flag/alarm" → "warning/alarm" to match implementation
-- Clarified relationship between simple Polarisation Index and Treff Polarization Index
-
+**v11.5** — Capability Metrics, Seiler TID classification (Treff PI, 5-class, 7→3 zone mapping), dual-timeframe TID drift detection, aggregate durability (7d/28d mean decoupling)  
 **v11.4** — Graduated alerts, history.json, confidence scoring, monotony deload context  
 **v11.3** — Output format guidelines, report templates, communication style  
 **v11.2** — Phase detection, load management hierarchy, zone distribution, durability sub-metrics, W′ balance  
@@ -113,6 +112,81 @@ This file represents a synchronized snapshot of current Intervals.icu metrics an
 The JSON endpoint is considered a **Tier-1 verified mirror** of Intervals.icu and inherits its trust priority in the Data Integrity Hierarchy. All metric sourcing and computation must reference it deterministically, without modification or estimation.
 
 If the data appears stale or outdated, the AI must explicitly request a data refresh before providing recommendations or generating analyses.
+
+#### Per-Sport Threshold Schema
+
+`current_status.thresholds` is the authoritative source for all threshold settings. Thresholds MUST be applied **per sport family**; cross-sport threshold application is not permitted.
+
+**Structure:**
+
+`current_status.thresholds` contains:
+- **Athlete-level capability estimates** (not sport-specific): `eftp`, `w_prime`, `w_prime_kj`, `p_max`, `vo2max` — these remain at the top level and may be null
+- **Per-sport-family settings** under `thresholds.sports`, a map keyed by sport family
+
+**Canonical form:**
+
+```json
+"thresholds": {
+  "eftp": null,
+  "w_prime": null,
+  "w_prime_kj": null,
+  "p_max": null,
+  "vo2max": 51.0,
+  "sports": {
+    "cycling": {
+      "lthr": 164,
+      "max_hr": 181,
+      "threshold_pace": null,
+      "pace_units": null,
+      "ftp": 250,
+      "ftp_indoor": null
+    },
+    "run": {
+      "lthr": 174,
+      "max_hr": 189,
+      "threshold_pace": 4.1841006,
+      "pace_units": "MINS_KM",
+      "ftp": 375,
+      "ftp_indoor": null
+    }
+  }
+}
+```
+
+**Sport families** are stable, low-cardinality modality identifiers used for threshold isolation: `cycling`, `run`, `swim`, `rowing`, `ski`, `walk`, `strength`, `other`. These map from Intervals.icu activity types via the `SPORT_FAMILIES` constant in sync.py.
+
+**Field semantics:**
+
+| Field | Description |
+|-------|-------------|
+| `lthr` | Lactate threshold HR (bpm) for this sport; null if not configured |
+| `max_hr` | Maximum HR (bpm) for this sport; null if not configured |
+| `ftp` | Primary threshold power (watts) for this sport — cycling FTP, running rFTPw, rowing erg threshold, etc. |
+| `ftp_indoor` | Indoor-specific threshold power (watts) if applicable — primarily cycling trainer FTP; null for most sports |
+| `threshold_pace` | Threshold pace in meters/second (m/s); null if not set |
+| `pace_units` | Display units enum (e.g., `MINS_KM`, `MINS_MILE`, `SECS_100M`); only meaningful when `threshold_pace` is non-null |
+
+**Sentinel normalization rules:**
+- If `threshold_pace` is `0`, `0.0`, or null → normalize to `null`
+- If `threshold_pace` is null → `pace_units` MUST be null
+
+**Sport-family lookup rule:**
+
+When evaluating an activity or session:
+
+1. Determine its sport family via `SPORT_FAMILIES` mapping
+2. Look up `thresholds.sports[family]`
+3. Use only that entry's values for all zone/threshold-dependent logic (zone boundaries, LT1/LT2 references, intensity classification, workout target conversions)
+
+If no entry exists for that family: skip all threshold-dependent checks and explicitly flag `"No thresholds configured for [family]"`.
+
+**Deterministic collision resolution:**
+
+If multiple Intervals.icu sport settings map to the same family:
+
+1. Prefer the entry with the highest count of populated (non-null) fields across `{ftp, ftp_indoor, lthr, max_hr, threshold_pace}`
+2. If tied, select by activity type name (alphabetical) for deterministic stability
+3. Record in audit metadata which entry was selected
 
 #### History Data Mirror (history.json)
 
@@ -220,7 +294,7 @@ To ensure deterministic phase classification, AI systems must evaluate the follo
 
 To ensure accurate intensity structure tracking across power and heart-rate data, the protocol aligns with **URF v5.1's Zone Distribution and Polarization Model**.
 
-This system applies Seiler's 3-zone endurance framework (Z1 = < LT1, Z2 = LT1–LT2, Z3 = > LT2) to all recorded sessions and computes both power- and HR-based polarization indices.
+This system applies Seiler's 3-zone endurance framework (Z1 = < LT1, Z2 = LT1–LT2, Z3 = > LT2) to all recorded sessions and computes both power- and HR-based polarization indices. Zone boundaries and LT1/LT2 proxies MUST be derived from the sport-matched threshold entry (`thresholds.sports[family]`). Cycling sessions use cycling LTHR/FTP; running sessions use running LTHR/threshold pace. Cross-sport threshold application is not permitted.
 
 |**Metric**                        | **Formula / Model**                     | **Source / Theory**                            | **Purpose / Interpretation**                                     |
 | ---------------------------------| --------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------- |
@@ -323,6 +397,7 @@ If the AI does not have a current value, it must request it from the user explic
 - HRV / RHR: No tolerance (use exact recent values)
 
 **FTP Governance:**
+- FTP references in this protocol use sport-family lookup: `thresholds.sports[family].ftp` for the relevant sport. Other sport families must not inherit cycling FTP.
 - FTP is governed by modeled MLSS via Intervals.icu; passive updates reflect validated endurance trends (no discrete FTP testing required)
 - FTP tests are optional — one or two per year may be performed for validation or benchmarking
 - AI systems must not infer or overwrite FTP unless validated by modeled data or explicit athlete confirmation
@@ -336,8 +411,8 @@ Benchmark Index = (FTP_current ÷ FTP_prior) − 1
 ```
 
 Where:
-- `FTP_current` = Current modeled FTP from Intervals.icu
-- `FTP_prior` = FTP value from 8–12 weeks prior (captures 1–1.5 training cycles)
+- `FTP_current` = Current modeled cycling FTP from Intervals.icu (`thresholds.sports.cycling.ftp`)
+- `FTP_prior` = Cycling FTP value from 8–12 weeks prior (captures 1–1.5 training cycles)
 
 **Interpretation:**
 | **Benchmark Index** | **Status**  | **Recommended Action**                                      |
@@ -385,7 +460,7 @@ Before providing recommendations, AI systems must verify:
 | #  | **Check**                        | **Deterministic Rules/Requirement**.                                                                                                                   |
 |----|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0  | **Data Source Fetch**            | Fetch JSON from mirror URL FIRST. If fetch fails or data unavailable, STOP and request manual data input.                                              |
-| 1  | FTP Source Verification          | Confirm FTP/LT2 is explicitly athlete-provided or from API or JSON mirror. Do not infer or recalculate from performance history.                       |
+| 1  | FTP Source Verification          | Confirm FTP/LT2 is explicitly athlete-provided or from API/JSON mirror via sport-family lookup (`thresholds.sports[family]`). Do not infer, recalculate, or cross-apply thresholds across sport families. |
 | 2  | Data Consistency Check           | Verify weekly training hours and load totals match the “READ_THIS_FIRST → quick_stats” dataset. Confirm totals within ±1% tolerance of logged data     |             
 | 3  | No Virtual Math Policy           | Ensure all computed metrics originate from raw or mirrored data. No interpolation, smoothing, or estimation permitted.                                 |
 | 4  | Tolerance Compliance             | Recommendations must remain within: ±3 W power, ±1 bpm HR, ±1% dataset variance.                                                                       |
@@ -1434,7 +1509,7 @@ This subsection defines the formal self-validation and audit metadata structure 
   "validation_metadata": {
     "data_source_fetched": true,
     "json_fetch_status": "success",
-    "protocol_version": "11.6",
+    "protocol_version": "11.8",
     "checklist_passed": [1, 2, 3, 4, 5, 6, "6b", 7, 8, 9, 10],
     "checklist_failed": [],
     "data_timestamp": "2026-01-13T22:32:05Z",
