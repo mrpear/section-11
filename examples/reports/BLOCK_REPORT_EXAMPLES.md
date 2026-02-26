@@ -59,6 +59,13 @@ Durability by Week:
   Wk 4: mean dec 1.8%, 2 qualifying, 0 high-drift
   Block trend: improving
 
+Efficiency Factor by Week:
+  Wk 1: mean EF 1.42, 3 qualifying
+  Wk 2: mean EF 1.45, 4 qualifying
+  Wk 3: mean EF 1.48, 4 qualifying
+  Wk 4: mean EF 1.50, 2 qualifying
+  Block trend: improving
+
 Wellness (block avg vs previous block):
   HRV: 53 ms (prev block: 51 ms) ↑ improving
   RHR: 49 bpm (prev block: 50 bpm) → stable — no concern
@@ -88,7 +95,8 @@ ramp — well within the <1.5 guideline. Both key performance markers hit
 targets, with VO2max power exceeding by 7W. The standout metric is long
 ride decoupling dropping from 4.8% to 2.1% — the aerobic engine is
 building nicely, confirmed by the aggregate durability trend improving
-steadily across all four weeks (3.2% → 1.8%). Grey zone stayed well
+steadily across all four weeks (3.2% → 1.8%). Efficiency Factor tracked
+upward in parallel (1.42 → 1.50), reinforcing the aerobic fitness gains. Grey zone stayed well
 controlled throughout, with only a minor creep in week 3 (4.2%) during
 peak load. TID held Polarized at block scale (PI 3.05). One flag
 triggered in week 3 but was handled correctly with a session modification.
@@ -167,6 +175,14 @@ Durability by Week:
   Wk 3: mean dec 5.1%, 2 qualifying, 1 high-drift ⚠️
   Wk 4: mean dec N/A, 0 qualifying (illness)
   Wk 5: mean dec 3.8%, 2 qualifying, 0 high-drift
+  Block trend: declining (illness-driven)
+
+Efficiency Factor by Week:
+  Wk 1: mean EF 1.46, 3 qualifying
+  Wk 2: mean EF 1.47, 4 qualifying
+  Wk 3: mean EF 1.39, 2 qualifying ⚠️
+  Wk 4: mean EF N/A, 0 qualifying (illness)
+  Wk 5: mean EF 1.41, 2 qualifying
   Block trend: declining (illness-driven)
 
 Wellness (block avg vs previous block):
