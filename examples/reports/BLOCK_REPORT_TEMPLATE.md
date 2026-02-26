@@ -61,6 +61,13 @@ Durability by Week:
   Wk 4: mean dec [X.X]%, [X] qualifying, [X] high-drift
   Block trend: [improving/stable/declining]
 
+Efficiency Factor by Week:
+  Wk 1: mean EF [X.XX], [X] qualifying
+  Wk 2: mean EF [X.XX], [X] qualifying
+  Wk 3: mean EF [X.XX], [X] qualifying
+  Wk 4: mean EF [X.XX], [X] qualifying
+  Block trend: [improving/stable/declining]
+
 Wellness (block avg vs previous block):
   HRV: [XX] ms (prev block: [XX] ms) [↑/↓/→] [assessment]
   RHR: [XX] bpm (prev block: [XX] bpm) [↑/↓/→] [assessment]
@@ -104,6 +111,7 @@ Next Block Plan:
 | **Decoupling trend** | Long ride aerobic efficiency | Improving decoupling = aerobic base building |
 | **Polarization by Week** | Weekly zone distributions | Catches grey zone creep within a block |
 | **Durability by Week** | Weekly mean decoupling from steady-state sessions | VI ≤ 1.05, ≥ 90min. Shows aerobic efficiency trajectory across block |
+| **Efficiency Factor by Week** | Weekly mean EF from steady-state cycling | VI ≤ 1.05, ≥ 20min. Shows aerobic fitness trajectory across block |
 | **TID 28d** | Block-scale Seiler classification | 28d window roughly matches block length; confirms or challenges weekly TID |
 | **Wellness assessment** | Directional + threshold label | "declining — monitor" / "stable — no concern" / "improving" |
 | **Phase Progression Check** | Section 11 phase detection criteria | Explicitly states whether block met progression criteria |
@@ -132,6 +140,7 @@ Next Block Plan:
 - **Week-by-week CTL** is critical — the trajectory tells a different story than just start/end
 - **Polarization by Week** catches grey zone creep that block averages can mask
 - **Durability by Week** catches aerobic efficiency regression that single-session decoupling can miss; the block trend is the headline
+- **Efficiency Factor by Week** catches aerobic fitness trends that complement durability; rising EF at same intensity = improving fitness
 - **Phase Progression Check** makes the protocol's decision logic transparent to the athlete
 - **Next Block Plan** should flow directly from the Phase Progression Check — if criteria aren't met, explain what the next block does differently
 - Keep "Assessment" to coaching interpretation — the data is already presented above
