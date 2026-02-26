@@ -1,11 +1,18 @@
 # Section 11 — AI Coach Protocol
 
-**Protocol Version:** 11.8  
-**Last Updated:** 2026-02-25
+**Protocol Version:** 11.9  
+**Last Updated:** 2026-02-26
 **License:** [MIT](https://opensource.org/licenses/MIT)
 
 
 ### Changelog
+
+**v11.9 — Efficiency Factor Tracking:**
+- Added Efficiency Factor (EF = NP ÷ Avg HR, Coggan) to Validated Optional Metrics
+- EF pulled from Intervals.icu API (`icu_efficiency_factor`), aggregated 7d/28d in capability namespace
+- Qualifying filters: cycling, VI ≤ 1.05, ≥ 20min, power+HR data
+- Trend detection: improving/stable/declining (±0.03 threshold)
+- Report templates updated: per-session in post-workout, aggregate in weekly/block/pre-workout
 
 **v11.8 — Per-Sport Threshold Schema:**
 - Added Per-Sport Threshold Schema defining `thresholds.sports` as a map keyed by sport family
@@ -905,6 +912,7 @@ Any training modification requires reconfirming **HRV**, **RHR**, and **subjecti
 | **Metric**                | **Formula / Method**                                                    | **Target Range**   | **Purpose / Interpretation**                                     |
 |---------------------------|-------------------------------------------------------------------------|--------------------|------------------------------------------------------------------|
 | HR–Power Decoupling (%)   | [(HR₂nd_half / Power₂nd_half) / (HR₁st_half / Power₁st_half) − 1] × 100 | < 5 %              | Aerobic efficiency metric; <5 % drift = stable HR–power coupling |
+| Efficiency Factor (EF)    | NP ÷ Avg HR (Coggan)                                                    | Individual / fitness-dependent | Aerobic efficiency trend; rising EF at same intensity = improving fitness. Compare like-for-like sessions only |
 | Durability Index (DI)     | `Avg Power last hour ÷ Avg Power first hour`                            | ≥ 0.95             | Quantifies fatigue resistance during endurance sessions          |
 | Fatigue Index Ratio (FIR) | `Best 20 min Power ÷ Best 60 min Power`                                 | 1.10 – 1.15        | Indicates sustainable power profile and fatigue decay            |
 | FatOx Trend *(Optional)*  | Derived from HR–Power and substrate data                                | Stable or positive | Tracks metabolic efficiency and substrate adaptation             |
