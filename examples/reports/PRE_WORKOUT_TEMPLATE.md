@@ -25,6 +25,7 @@ Ramp Rate: [X.XX]
 Load/Recovery: [X.X] (tolerance [X.X]) — [context note if near edge]
 Polarization: Z1+Z2 [XX]%, Z3 [X]%, Z4+ [X]% — [Classification] (PI: [X.XX]) [TID drift: shifting/depolarizing — only if not consistent]
 Durability: [X.XX]% 7d mean ([trend]) — [X] qualifying sessions
+EF: [X.XX] 7d mean ([trend]) — [X] qualifying sessions
 Monotony: [X.XX] ([primary sport] [X.XX], total [X.XX]) — [note]
 Total hours, last 7 days: [XX.XX] hours
 Total activities, last 7 days: [XX]
@@ -55,6 +56,7 @@ Interpretation:
 | Coach note (weather) | Include only if actionable (e.g., dress warm, indoor day) |
 | Monotony | Include **only** if > 2.3. Omit entirely when normal |
 | Durability | Include if qualifying sessions exist. Omit if 0 qualifying sessions in 7d |
+| EF | Include if qualifying sessions exist. Omit if 0 qualifying sessions in 7d |
 | TID drift | Append to Polarization line **only** if drift is "shifting" or "acute_depolarization". Omit when "consistent" |
 | Load/Recovery context | Include tolerance note only when within 0.2 of threshold |
 | Next session | Include only on rest days |
