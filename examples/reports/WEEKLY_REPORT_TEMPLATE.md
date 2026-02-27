@@ -118,4 +118,4 @@ focus areas. Reference load targets and phase progression.]
 - **Quality Session Detail** only includes hard/intensity sessions — omit recovery/endurance rides unless metrics were notable. Cap at 2–3 key sessions per week; if 4+ hard days occurred, prioritize sessions with the most notable targets, flags, or breakthroughs
 - **Section 11 Flags** should surface immediately in weekly reports, not deferred to block reports
 - **Wellness arrows** use simple thresholds: >5% change from previous week = ↑ or ↓, otherwise →
-- Keep "Overall" concise — this is coaching interpretation, not data repetition
+- Keep "Interpretation" concise — this is coaching interpretation, not data repetition
