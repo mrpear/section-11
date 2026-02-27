@@ -55,17 +55,17 @@ Polarization by Week:
   Wk 4: Z1+Z2 [XX]%, Z3 [X]%, Z4+ [X]% — [Classification] (PI: [X.XX])
 
 Durability by Week:
-  Wk 1: mean dec [X.X]%, [X] qualifying, [X] high-drift
-  Wk 2: mean dec [X.X]%, [X] qualifying, [X] high-drift
-  Wk 3: mean dec [X.X]%, [X] qualifying, [X] high-drift
-  Wk 4: mean dec [X.X]%, [X] qualifying, [X] high-drift
+  Wk 1: mean([X]) dec [X.X]%, [X] high-drift
+  Wk 2: mean([X]) dec [X.X]%, [X] high-drift
+  Wk 3: mean([X]) dec [X.X]%, [X] high-drift
+  Wk 4: mean([X]) dec [X.X]%, [X] high-drift
   Block trend: [improving/stable/declining]
 
 Efficiency Factor by Week:
-  Wk 1: mean EF [X.XX], [X] qualifying
-  Wk 2: mean EF [X.XX], [X] qualifying
-  Wk 3: mean EF [X.XX], [X] qualifying
-  Wk 4: mean EF [X.XX], [X] qualifying
+  Wk 1: mean([X]) EF [X.XX]
+  Wk 2: mean([X]) EF [X.XX]
+  Wk 3: mean([X]) EF [X.XX]
+  Wk 4: mean([X]) EF [X.XX]
   Block trend: [improving/stable/declining]
 
 Wellness (block avg vs previous block):
@@ -84,7 +84,7 @@ Phase Progression Check:
   Phase recommendation: [Continue current / Progress to next / Extend / Insert recovery]
   Rationale: [1-2 sentences explaining why, based on metrics above]
 
-Assessment:
+Interpretation:
 [3-5 sentences — did the block achieve its goals? What adapted?
 What stalled? Recovery status entering next block. Key wins and
 concerns. Block-over-block comparison where relevant.]
