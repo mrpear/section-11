@@ -15,12 +15,12 @@ Start time: [HH:MM:SS]
 Duration: [X.XX] hours (planned [Xh])
 Distance: [XX.X] km
 Power: [XXX] W avg / [XXX] W NP
-Power zones: [XX.X]% Zone 1, [XX.X]% Zone 2
+Power zones: [XX]% Zone 1, [XX]% Zone 2
 Grey Zone (Z3): [XX]%
 Quality (Z4+): [XX]%
 Session profile: [Classification]
 HR: [XXX] avg / [XXX] max
-HR zones: [XX.X]% Zone 1, [XX.X]% Zone 2
+HR zones: [XX]% Zone 1, [XX]% Zone 2
 Cadence: [XX] avg
 Decoupling: [X.XX]%
 EF: [X.XX]
@@ -65,11 +65,11 @@ Round zone percentages to the nearest **whole number** (1%). The JSON data sourc
 | Cadence | Cycling, running | Omit for SkiErg, strength |
 | Decoupling | Sessions ≥ 1 hour | Key aerobic efficiency marker |
 | EF | Activities with power + HR | Aerobic efficiency (NP ÷ HR); track trend over like-for-like sessions. Absolute value is individual-dependent |
-| Variability Index | Cycling with power | 1.00–1.05 = steady, >1.05 = variable |
+| Variability Index | Cycling with power | 1.00–1.05 = steady, >1.05 = variable. Assessment labels apply to steady-state only; omit label for interval sessions where high VI is expected |
 | Carbs used | Sessions with power data | Omit if unavailable |
 | Durability (weekly) | Aggregate decoupling 7d/28d | Steady-state sessions only (VI ≤ 1.05, ≥ 90min). Trend direction matters more than absolute value |
 | EF (weekly) | Aggregate EF 7d/28d | Steady-state cycling only (VI ≤ 1.05, ≥ 20min). Trend direction matters more than absolute value |
-| TID 28d (weekly) | 28d Seiler classification + drift | Shows whether acute TID matches chronic pattern. Omit drift label when "consistent" |
+| TID 28d (weekly) | 28d Seiler classification + drift | Shows whether acute TID matches chronic pattern. Always include drift label |
 | Weekly totals | Always | Running totals through current day |
 
 ## Assessment Labels
