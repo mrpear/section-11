@@ -23,7 +23,8 @@ ACWR: [X.XX] ([assessment])
 Recovery Index: [X.XX] ([assessment])
 Ramp Rate: [X.XX]
 Load/Recovery: [X.X] (tolerance [X.X]) — [context note if near edge]
-Polarization: Z1+Z2 [XX]%, Z3 [X]%, Z4+ [X]% — [Classification] (PI: [X.XX]) [TID drift: shifting/depolarizing — only if not consistent]
+Polarization: Z1+Z2 [XX]%, Z3 [X]%, Z4+ [X]% — [Classification] (PI: [X.XX])
+TID 28d: [Classification] (PI: [X.XX]) — drift: [shifting/acute_depolarization] [only if not consistent]
 Durability: [X.XX]% 7d mean([X]) ([trend])
 EF: [X.XX] 7d mean([X]) ([trend])
 Monotony: [X.XX] ([primary sport] [X.XX], total [X.XX]) — [note]
@@ -55,7 +56,7 @@ suitability (proceed/modify/skip with rationale), coach tip.]
 | Monotony | Include **only** if > 2.3. Omit entirely when normal |
 | Durability | Include if qualifying sessions exist. Omit if 0 qualifying sessions in 7d |
 | EF | Include if qualifying sessions exist. Omit if 0 qualifying sessions in 7d |
-| TID drift | Append to Polarization line **only** if drift is "shifting" or "acute_depolarization". Omit when "consistent" |
+| TID 28d + drift | Include as separate line **only** if drift is "shifting" or "acute_depolarization". Omit entire line when "consistent" |
 | Load/Recovery context | Include tolerance note only when within 0.2 of threshold |
 | Next session | Include only on rest days |
 | Modify/Skip rationale | Required when recommendation is not "Go" |
