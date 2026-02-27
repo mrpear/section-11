@@ -132,6 +132,6 @@ Some fields appear only when relevant:
 ## Notes
 
 - All examples use anonymized/placeholder data — replace with actual values from your JSON feed
-- Zone percentages round to nearest whole number (see rounding convention in POST_WORKOUT_TEMPLATE.md)
+- Zone percentages round to nearest whole number (see rounding convention in POST_WORKOUT_REPORT_TEMPLATE.md)
 - Data flows upward between reports: post-workout → weekly → block (see REPORT_HIERARCHY.md)
 - Section 11 flags surface at the weekly level and are summarized with resolution in block reports
