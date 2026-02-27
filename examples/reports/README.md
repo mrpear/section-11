@@ -21,7 +21,7 @@ See templates and examples below for annotated reference.
 - Completed session metrics (power, HR, zones, decoupling, VI, TSS vs planned)
 - Plan compliance assessment
 - Weekly running totals (polarization, durability 7d/28d + trend, TID 28d + drift, CTL, ATL, TSB, ACWR, hours, TSS)
-- Overall coach note (2-4 sentences: compliance, key quality observations, load context, recovery note)
+- Interpretation (2-4 sentences: compliance, key quality observations, load context, recovery note)
 
 **Weekly Reports must include:**
 - Session breakdown with compliance status (✅/⚠️/❌)
