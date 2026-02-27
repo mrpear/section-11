@@ -544,7 +544,7 @@ class IntervalsSync:
         Build per-sport-family threshold map from athlete sportSettings.
         Returns a dict keyed by sport family (e.g. {"cycling": {...}, "run": {...}})
         """
-        candidates: dict[str, tuple[dict, int]] = {}
+        candidates: dict[str, tuple[dict, int, str]] = {}
 
         for sport in athlete.get("sportSettings", []):
             for sport_type in sport.get("types", []):
@@ -567,10 +567,11 @@ class IntervalsSync:
 
                 populated = sum(1 for v in entry.values() if v is not None)
 
-                if family not in candidates or populated > candidates[family][1]:
-                    candidates[family] = (entry, populated)
+                if family not in candidates or populated > candidates[family][1] or \
+                   (populated == candidates[family][1] and sport_type < candidates[family][2]):
+                    candidates[family] = (entry, populated, sport_type)
 
-        return {family: data for family, (data, _) in candidates.items()}
+        return {family: data for family, (data, _, _) in candidates.items()}
     
     def _calculate_derived_metrics(self, activities_7d: List[Dict], activities_28d: List[Dict],
                                     wellness_7d: List[Dict], wellness_extended: List[Dict],
