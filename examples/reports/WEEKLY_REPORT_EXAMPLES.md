@@ -44,11 +44,11 @@ Polarization:
   Classification 7d: Polarized (PI: 2.92) | 28d: Polarized (PI: 3.05) — consistent
 
 Durability (steady-state sessions, VI ≤ 1.05, ≥ 90min):
-  7d mean: 2.10% (3 sessions) | 28d mean: 2.65% (11 sessions)
+  7d mean(3): 2.10% | 28d mean(11): 2.65%
   Trend: improving | High drift (>5%): 0 sessions
 
 Efficiency Factor (steady-state cycling, VI ≤ 1.05, ≥ 20min):
-  7d mean: 1.47 (4 sessions) | 28d mean: 1.44 (14 sessions)
+  7d mean(4): 1.47 | 28d mean(14): 1.44
   Trend: stable
 
 Fitness:
@@ -66,7 +66,7 @@ Wellness Trends:
 
 Section 11 Flags: None
 
-Overall:
+Interpretation:
 Strong compliance week — all six sessions completed as planned. Both
 quality sessions hit targets: sweetspot power slightly above target with
 excellent pacing (VI 1.01), and VO2max intervals within 2% of target
@@ -116,11 +116,11 @@ Polarization:
   Classification 7d: Pyramidal (PI: 1.85) | 28d: Polarized (PI: 2.90) — acute_depolarization ⚠️
 
 Durability (steady-state sessions, VI ≤ 1.05, ≥ 90min):
-  7d mean: 4.80% (2 sessions) | 28d mean: 2.90% (9 sessions)
+  7d mean(2): 4.80% | 28d mean(9): 2.90%
   Trend: declining | High drift (>5%): 1 session
 
 Efficiency Factor (steady-state cycling, VI ≤ 1.05, ≥ 20min):
-  7d mean: 1.38 (3 sessions) | 28d mean: 1.44 (11 sessions)
+  7d mean(3): 1.38 | 28d mean(11): 1.44
   Trend: declining
 
 Fitness:
@@ -142,7 +142,7 @@ Section 11 Flags:
   - TID acute depolarization: 7d PI 1.85 vs 28d PI 2.90 → fatigue shifting distribution
   - Durability declining: 7d mean 4.80% vs 28d 2.90% → aerobic efficiency slipping
 
-Overall:
+Interpretation:
 Fatigue accumulated from weeks 1-2 surfaced mid-week. HRV dropped 15%
 Thursday morning, prompting an unplanned rest day — correct decision per
 Section 11 Tier 1 readiness hierarchy. Tuesday's tempo was modified
