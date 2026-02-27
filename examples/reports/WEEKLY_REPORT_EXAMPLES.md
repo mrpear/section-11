@@ -29,7 +29,7 @@ Quality Session Detail:
   Sweetspot 2x20:
     Target: 248W | Actual: 251W avg / 254W NP
     Decoupling: 2.1% (good)
-    VI: 1.01 (excellent)
+    VI: 1.01 (good)
     HR: 158 avg / 167 max
   VO2max 5x4min:
     Target: 310W | Actual: 306W avg / 315W NP
@@ -38,9 +38,9 @@ Quality Session Detail:
     HR: 168 avg / 178 max
 
 Polarization:
-  Z1+Z2: 83.4%
-  Z3 (Grey Zone): 3.1% (target <5%)
-  Z4+ (Quality): 13.5% (target ~20% of intensity sessions)
+  Z1+Z2: 83%
+  Z3 (Grey Zone): 3% (target <5%)
+  Z4+ (Quality): 14% (target ~20% of intensity sessions)
   TID 7d: Polarized (PI: 2.92)
   TID 28d: Polarized (PI: 3.05) — drift: consistent
 
@@ -56,6 +56,7 @@ Fitness:
   CTL: 78.2 → 80.6 (Δ +2.4)
   ATL: 82.1 → 85.3
   TSB: -3.9 → -4.7
+  Recovery Index: 0.89 (good)
   Ramp rate: 1.20
   ACWR: 1.06 (optimal)
     Acute (7d): 537 TSS | Chronic (28d avg): 507 TSS
@@ -71,7 +72,7 @@ Interpretation:
 Strong compliance week — all six sessions completed as planned. Both
 quality sessions hit targets: sweetspot power slightly above target with
 excellent pacing (VI 1.01), and VO2max intervals within 2% of target
-despite being end of a build week. Grey zone well controlled at 3.1%.
+despite being end of a build week. Grey zone well controlled at 3%.
 TSB drifting slightly negative but manageable heading into week 3.
 
 Next Week Preview:
@@ -106,14 +107,14 @@ Session Breakdown:
 Quality Session Detail:
   Tempo 3x15 (modified to 2x15):
     Target: 235W | Actual: 228W avg / 232W NP
-    Decoupling: 6.2% (moderate)
+    Decoupling: 6.2% (elevated)
     VI: 1.02 (good)
     HR: 155 avg / 164 max
 
 Polarization:
-  Z1+Z2: 91.2%
-  Z3 (Grey Zone): 6.8% (target <5%) ⚠️
-  Z4+ (Quality): 2.0%
+  Z1+Z2: 91%
+  Z3 (Grey Zone): 7% (target <5%) ⚠️
+  Z4+ (Quality): 2%
   TID 7d: Pyramidal (PI: 1.85)
   TID 28d: Polarized (PI: 2.90) — drift: acute_depolarization ⚠️
 
@@ -129,6 +130,7 @@ Fitness:
   CTL: 72.4 → 71.1 (Δ -1.3)
   ATL: 88.6 → 78.2
   TSB: -16.2 → -7.1
+  Recovery Index: 0.72 (moderate)
   Ramp rate: -0.65
   ACWR: 0.89 (optimal)
     Acute (7d): 392 TSS | Chronic (28d avg): 441 TSS
@@ -149,7 +151,7 @@ Fatigue accumulated from weeks 1-2 surfaced mid-week. HRV dropped 15%
 Thursday morning, prompting an unplanned rest day — correct decision per
 Section 11 Tier 1 readiness hierarchy. Tuesday's tempo was modified
 mid-session (cut third interval) due to elevated perceived effort, and
-grey zone crept to 6.8% as a result of pacing drift. Durability declined
+grey zone crept to 7% as a result of pacing drift. Durability declined
 noticeably (4.8% vs 2.9% 28d average) and TID shifted from Polarized to
 Pyramidal — both consistent with accumulated fatigue rather than a training
 design issue. TSB recovering from -16 to -7, which was needed. Sleep
