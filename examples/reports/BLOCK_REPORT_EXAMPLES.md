@@ -163,8 +163,8 @@ Polarization (block average):
   Hard days/week avg: 1.4
 
 Polarization by Week:
-  Wk 1: Z1+Z2 84%, Z3 3.5%, Z4+ 12.5%
-  Wk 2: Z1+Z2 82%, Z3 4.1%, Z4+ 13.9%
+  Wk 1: Z1+Z2 84%, Z3 3.5%, Z4+ 12.5% — Polarized (PI: 2.95)
+  Wk 2: Z1+Z2 82%, Z3 4.1%, Z4+ 13.9% — Polarized (PI: 2.88)
   Wk 3: Z1+Z2 91%, Z3 6.8%, Z4+ 2.2%
   Wk 4: Z1+Z2 96%, Z3 3.1%, Z4+ 0.9%
   Wk 5: Z1+Z2 88%, Z3 5.8%, Z4+ 6.2%
