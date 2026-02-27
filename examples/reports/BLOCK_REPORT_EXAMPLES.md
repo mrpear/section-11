@@ -53,17 +53,17 @@ Polarization by Week:
   Wk 4: Z1+Z2 92%, Z3 2.1%, Z4+ 5.9%
 
 Durability by Week:
-  Wk 1: mean dec 3.2%, 3 qualifying, 0 high-drift
-  Wk 2: mean dec 2.8%, 3 qualifying, 0 high-drift
-  Wk 3: mean dec 2.1%, 4 qualifying, 0 high-drift
-  Wk 4: mean dec 1.8%, 2 qualifying, 0 high-drift
+  Wk 1: mean(3) dec 3.2%, 0 high-drift
+  Wk 2: mean(3) dec 2.8%, 0 high-drift
+  Wk 3: mean(4) dec 2.1%, 0 high-drift
+  Wk 4: mean(2) dec 1.8%, 0 high-drift
   Block trend: improving
 
 Efficiency Factor by Week:
-  Wk 1: mean EF 1.42, 3 qualifying
-  Wk 2: mean EF 1.45, 4 qualifying
-  Wk 3: mean EF 1.48, 4 qualifying
-  Wk 4: mean EF 1.50, 2 qualifying
+  Wk 1: mean(3) EF 1.42
+  Wk 2: mean(4) EF 1.45
+  Wk 3: mean(4) EF 1.48
+  Wk 4: mean(2) EF 1.50
   Block trend: improving
 
 Wellness (block avg vs previous block):
@@ -89,7 +89,7 @@ Phase Progression Check:
   suggests FTP test will confirm improvement. Aerobic base is solid
   (decoupling 2.1% over 4.5h). Athlete is ready for race-specific work.
 
-Assessment:
+Interpretation:
 Textbook threshold block. CTL rose 8.9 points at a sustainable 1.12/week
 ramp — well within the <1.5 guideline. Both key performance markers hit
 targets, with VO2max power exceeding by 7W. The standout metric is long
@@ -170,19 +170,19 @@ Polarization by Week:
   Wk 5: Z1+Z2 88%, Z3 5.8%, Z4+ 6.2%
 
 Durability by Week:
-  Wk 1: mean dec 2.5%, 3 qualifying, 0 high-drift
-  Wk 2: mean dec 2.8%, 3 qualifying, 0 high-drift
-  Wk 3: mean dec 5.1%, 2 qualifying, 1 high-drift ⚠️
-  Wk 4: mean dec N/A, 0 qualifying (illness)
-  Wk 5: mean dec 3.8%, 2 qualifying, 0 high-drift
+  Wk 1: mean(3) dec 2.5%, 0 high-drift
+  Wk 2: mean(3) dec 2.8%, 0 high-drift
+  Wk 3: mean(2) dec 5.1%, 1 high-drift ⚠️
+  Wk 4: mean(0) dec N/A (illness)
+  Wk 5: mean(2) dec 3.8%, 0 high-drift
   Block trend: declining (illness-driven)
 
 Efficiency Factor by Week:
-  Wk 1: mean EF 1.46, 3 qualifying
-  Wk 2: mean EF 1.47, 4 qualifying
-  Wk 3: mean EF 1.39, 2 qualifying ⚠️
-  Wk 4: mean EF N/A, 0 qualifying (illness)
-  Wk 5: mean EF 1.41, 2 qualifying
+  Wk 1: mean(3) EF 1.46
+  Wk 2: mean(4) EF 1.47
+  Wk 3: mean(2) EF 1.39 ⚠️
+  Wk 4: mean(0) EF N/A (illness)
+  Wk 5: mean(2) EF 1.41
   Block trend: declining (illness-driven)
 
 Wellness (block avg vs previous block):
@@ -217,7 +217,7 @@ Phase Progression Check:
   risks further setback. Next block should rebuild to block entry CTL
   and restore aerobic efficiency before advancing.
 
-Assessment:
+Interpretation:
 A disrupted block. Weeks 1-2 were tracking well — strong compliance,
 good polarization, CTL rising on target, durability solid at 2.5-2.8%.
 The mid-block illness (week 3-4) cost approximately 2 weeks of productive
