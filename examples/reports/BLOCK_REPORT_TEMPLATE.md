@@ -41,9 +41,9 @@ Key Performance Markers:
   Best 5-min power: [XXX]W (week [X])
 
 Polarization (block average):
-  Z1+Z2: [XX.X]%
-  Z3 (Grey Zone): [X.X]% (target <5%)
-  Z4+ (Quality): [X.X]% (target ~20% of intensity sessions)
+  Z1+Z2: [XX]%
+  Z3 (Grey Zone): [X]% (target <5%)
+  Z4+ (Quality): [X]% (target ~20% of intensity sessions)
   TID 28d (block-scale): [Classification] (PI: [X.XX])
   Hard days/week avg: [X.X]
 
