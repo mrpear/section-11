@@ -4,26 +4,22 @@ Intervals.icu → GitHub/Local JSON Export
 Exports training data for LLM access.
 Supports both automated GitHub sync and manual local export.
 
+Version 3.6.1 - Hard Day HR Zone Fallback
+  - Hard day counter falls back to icu_hr_zone_times when power zones unavailable
+  - Conservative 2-rung HR ladder (Z4+ >= 10min, Z5+ >= 5min) per Seiler 3-zone model
+  - Shared _get_activity_zones() and _classify_hard_day() helpers across all call sites
+  - Daily tier rows include intensity_basis field (power/hr/mixed/null)
+  - is_hard_day returns null when no zone data exists (not false)
+  - _aggregate_zones() refactored to use shared helper
+
 Version 3.6.0 - Efficiency Factor (EF) tracking
   - Pull icu_efficiency_factor (NP/Avg HR, Coggan) per activity from Intervals.icu API
   - Aggregate EF 7d/28d with trend (improving/stable/declining)
   - Qualifying filters: cycling, VI <= 1.05, >= 20min, power+HR
   - Added to capability namespace alongside durability and TID comparison
 
-Version 3.5.1 - HRV Outlier Filter
-  - Add _is_valid_hrv() helper to filter sensor errors (10-250ms range)
-  - Applied to: baselines (7d/28d), Recovery Index, persistence counts, summaries
-  - Fixes false alarms from sensor glitches (e.g., 255ms Amazfit/Garmin errors)
-
-Version 3.5.0 - Race Calendar & Race-Week Protocol
-  - 90-day race calendar from Intervals.icu RACE_A/B/C event categories
-  - Three-layer race awareness: calendar (D-90), taper onset (D-14 to D-8), race week (D-7 to D-0)
-  - Race-week protocol: day-by-day load targets (% of CTL), zone guidance, purpose labels
-  - TSB projection for race day using PMC decay with zero assumed load
-  - Event duration classification (short/medium/long) from moving_time
-  - Carb loading triggers (≥90min events), opener scheduling (D-2), go/no-go checklist
-  - RACE_B lighter taper (50-65% budget vs 40-55% for RACE_A)
-  - Race-specific alerts integrated into main alerts array
+Version 3.5.1 - HRV outlier filter (_is_valid_hrv(), 10-250ms range), applied to baselines/RI/summaries
+Version 3.5.0 - Race calendar (90-day, RACE_A/B/C), race-week protocol (D-7 to D-0), TSB projection
 
 Version 3.4.1 - KeyError fix, defensive .get(), anonymization improvements
 Version 3.4.0 - Aggregate durability (7d/28d decoupling), dual-timeframe TID, capability namespace
@@ -53,7 +49,7 @@ class IntervalsSync:
     HISTORY_FILE = "history.json"
     UPSTREAM_REPO = "CrankAddict/section-11"
     CHANGELOG_FILE = "changelog.json"
-    VERSION = "3.6.0"
+    VERSION = "3.6.1"
 
     # Sport family mapping for per-sport monotony calculation
     # Multi-sport athletes get inflated total monotony when cross-training
@@ -779,9 +775,9 @@ class IntervalsSync:
         )
         
         # === HARD DAYS THIS WEEK ===
-        # Zone ladder with cumulative thresholds (z+ = zone + all above)
-        # z3+ >= 1800s, z4+ >= 600s, z5+ >= 300s, z6+ >= 120s, z7 >= 60s
-        # Per Seiler's polarized model + Foster's session RPE scaling
+        # Uses _classify_hard_day() for consistent power/HR evaluation.
+        # Power: 5-rung cumulative ladder (Seiler/Foster)
+        # HR fallback: 2-rung conservative ladder (above LT2 only)
         hard_days_this_week = 0
         activities_by_date_7d = {}
         for a in activities_7d:
@@ -791,36 +787,16 @@ class IntervalsSync:
             activities_by_date_7d[a_date].append(a)
         
         for date_str, day_acts in activities_by_date_7d.items():
-            day_z3 = 0
-            day_z4 = 0
-            day_z5 = 0
-            day_z6 = 0
-            day_z7 = 0
+            day_zones_by_basis = {}
             for a in day_acts:
-                icu_zone_times = a.get("icu_zone_times", [])
-                if icu_zone_times:
-                    for zone in icu_zone_times:
-                        zid = zone.get("id", "").lower()
-                        secs = zone.get("secs", 0)
-                        if zid == "z3":
-                            day_z3 += secs
-                        elif zid == "z4":
-                            day_z4 += secs
-                        elif zid == "z5":
-                            day_z5 += secs
-                        elif zid == "z6":
-                            day_z6 += secs
-                        elif zid == "z7":
-                            day_z7 += secs
-            # Zone ladder: cumulative thresholds (z+ = zone + all above)
-            # Per Seiler's polarized model + Foster's session RPE scaling
-            is_hard = (
-                (day_z3 + day_z4 + day_z5 + day_z6 + day_z7) >= 1800 or  # z3+: 30 min tempo+
-                (day_z4 + day_z5 + day_z6 + day_z7) >= 600 or            # z4+: 10 min threshold+
-                (day_z5 + day_z6 + day_z7) >= 300 or                      # z5+: 5 min VO2max+
-                (day_z6 + day_z7) >= 120 or                                # z6+: 2 min anaerobic+
-                day_z7 >= 60                                                # z7:  1 min neuromuscular
-            )
+                zones, basis = self._get_activity_zones(a)
+                if zones and basis:
+                    if basis not in day_zones_by_basis:
+                        day_zones_by_basis[basis] = {}
+                    for zid, secs in zones.items():
+                        day_zones_by_basis[basis][zid] = day_zones_by_basis[basis].get(zid, 0) + secs
+            
+            is_hard, _basis = self._classify_hard_day(day_zones_by_basis)
             if is_hard:
                 hard_days_this_week += 1
         
@@ -884,7 +860,7 @@ class IntervalsSync:
             "polarisation_index": polarisation_index,
             "polarisation_note": "Easy time (Z1+Z2) / Total - target ~80% in polarized training",
             "hard_days_this_week": hard_days_this_week,
-            "hard_days_note": "Zone ladder: z3+ >= 30min, z4+ >= 10min, z5+ >= 5min, z6+ >= 2min, z7 >= 1min. Cumulative thresholds per Seiler/Foster — higher zones need less time to qualify as hard",
+            "hard_days_note": "Power ladder: z3+ >= 30min, z4+ >= 10min, z5+ >= 5min, z6+ >= 2min, z7 >= 1min. HR fallback (when no power): z4+ >= 10min, z5+ >= 5min. Per Seiler 3-zone model + Foster. HR-based days flagged with intensity_basis: hr",
             
             # Tier 3: Seiler TID (Training Intensity Distribution)
             "seiler_tid_7d": seiler_tid_all,
@@ -1121,6 +1097,125 @@ class IntervalsSync:
 
         return result
 
+    # === ZONE EXTRACTION & HARD DAY CLASSIFICATION ===
+    # Shared helpers used by _aggregate_zones, derived metrics, and all tier builders.
+    # Power zones (icu_zone_times) preferred; HR zones (icu_hr_zone_times) as fallback.
+    # HR and power zones are NOT interchangeable — different widths, lag characteristics,
+    # and physiological meaning. They are kept in separate accumulators.
+
+    @staticmethod
+    def _get_activity_zones(activity: Dict) -> tuple:
+        """
+        Extract zone times from a single activity.
+        
+        Returns (zones_dict, basis) where:
+        - zones_dict: {"z1": secs, "z2": secs, ...} 
+        - basis: "power" | "hr" | None
+        
+        Power zones (icu_zone_times): list of {"id": "Z3", "secs": 600}
+        HR zones (icu_hr_zone_times): flat array of seconds [0, 120, 300, 180, 60]
+        
+        Power preferred. HR fallback only when power unavailable.
+        HR zones typically 5-zone (indices 0-4 → z1-z5), sometimes 7.
+        """
+        # Try power zones first
+        icu_zone_times = activity.get("icu_zone_times", [])
+        if icu_zone_times:
+            pz = {}
+            for zone in icu_zone_times:
+                zone_id = zone.get("id", "").lower()
+                secs = zone.get("secs", 0)
+                if zone_id in ("z1", "z2", "z3", "z4", "z5", "z6", "z7"):
+                    pz[zone_id] = secs
+            if pz:
+                return (pz, "power")
+        
+        # Fallback to HR zones
+        icu_hr_zone_times = activity.get("icu_hr_zone_times", [])
+        if icu_hr_zone_times:
+            zone_labels = ("z1", "z2", "z3", "z4", "z5", "z6", "z7")
+            hz = {}
+            for idx, secs in enumerate(icu_hr_zone_times):
+                if idx < len(zone_labels) and secs:
+                    hz[zone_labels[idx]] = secs
+            if hz:
+                return (hz, "hr")
+        
+        return ({}, None)
+
+    @staticmethod
+    def _classify_hard_day(day_zones_by_basis: Dict) -> tuple:
+        """
+        Classify whether a day is hard based on accumulated zone times.
+        
+        Args:
+            day_zones_by_basis: {"power": {"z3": N, "z4": N, ...}, "hr": {"z4": N, "z5": N, ...}}
+                Power and HR zones accumulated SEPARATELY across the day's activities.
+        
+        Returns (is_hard, basis) where:
+        - is_hard: True | False | None (None = no zone data, unknown)
+        - basis: "power" | "hr" | "mixed" | None
+        
+        Power ladder (5 rungs, per Seiler/Foster):
+            z3+ >= 1800s, z4+ >= 600s, z5+ >= 300s, z6+ >= 120s, z7 >= 60s
+        
+        HR ladder (2 rungs, conservative — per Seiler 3-zone model):
+            z4+ >= 600s (sustained above LT2)
+            z5+ >= 300s (VO2max)
+        
+        HR zones are too wide and lagged for fine-grained classification.
+        Short-duration rungs (z6+/z7) invalid for HR due to cardiac lag.
+        Z3 skipped for HR to avoid false positives on steady-state runs.
+        """
+        pz = day_zones_by_basis.get("power", {})
+        hz = day_zones_by_basis.get("hr", {})
+        
+        has_power = bool(pz)
+        has_hr = bool(hz)
+        
+        if not has_power and not has_hr:
+            return (None, None)
+        
+        # Power ladder (unchanged)
+        power_hard = False
+        if has_power:
+            p_z3 = pz.get("z3", 0)
+            p_z4 = pz.get("z4", 0)
+            p_z5 = pz.get("z5", 0)
+            p_z6 = pz.get("z6", 0)
+            p_z7 = pz.get("z7", 0)
+            power_hard = (
+                (p_z3 + p_z4 + p_z5 + p_z6 + p_z7) >= 1800 or  # z3+: 30 min tempo+
+                (p_z4 + p_z5 + p_z6 + p_z7) >= 600 or            # z4+: 10 min threshold+
+                (p_z5 + p_z6 + p_z7) >= 300 or                    # z5+: 5 min VO2max+
+                (p_z6 + p_z7) >= 120 or                            # z6+: 2 min anaerobic+
+                p_z7 >= 60                                          # z7:  1 min neuromuscular
+            )
+        
+        # HR ladder (conservative fallback)
+        hr_hard = False
+        if has_hr:
+            h_z4 = hz.get("z4", 0)
+            h_z5 = hz.get("z5", 0)
+            h_z6 = hz.get("z6", 0)
+            h_z7 = hz.get("z7", 0)
+            hr_hard = (
+                (h_z4 + h_z5 + h_z6 + h_z7) >= 600 or  # z4+: 10 min above LT2
+                (h_z5 + h_z6 + h_z7) >= 300              # z5+: 5 min VO2max
+            )
+        
+        is_hard = power_hard or hr_hard
+        
+        # Determine basis
+        if has_power and has_hr:
+            basis = "mixed"
+        elif has_power:
+            basis = "power"
+        else:
+            basis = "hr"
+        
+        return (is_hard, basis)
+
     def _aggregate_zones(self, activities: List[Dict]) -> Dict:
         """
         Aggregate zone times across all activities.
@@ -1130,6 +1225,8 @@ class IntervalsSync:
         - Z1-Z2: Easy (below LT1)
         - Z3: Grey zone / Tempo (between LT1 and LT2) - to be minimized
         - Z4+: Hard / Quality (above LT2) - ~20% target
+        
+        Uses _get_activity_zones() for consistent power/HR fallback.
         """
         z1_time = 0
         z2_time = 0
@@ -1138,32 +1235,7 @@ class IntervalsSync:
         total_time = 0
         
         for act in activities:
-            zones = None
-            
-            # Check for zone data in raw activity
-            icu_zone_times = act.get("icu_zone_times", [])
-            icu_hr_zone_times = act.get("icu_hr_zone_times", [])
-            
-            # Power zones (preferred for cycling)
-            if icu_zone_times:
-                pz = {}
-                for zone in icu_zone_times:
-                    zone_id = zone.get("id", "").lower()
-                    secs = zone.get("secs", 0)
-                    if zone_id in ["z1", "z2", "z3", "z4", "z5", "z6", "z7"]:
-                        pz[zone_id] = secs
-                if pz:
-                    zones = pz
-            
-            # HR zones (fallback)
-            if not zones and icu_hr_zone_times:
-                zone_labels = ["z1", "z2", "z3", "z4", "z5", "z6", "z7"]
-                hz = {}
-                for idx, secs in enumerate(icu_hr_zone_times):
-                    if idx < len(zone_labels) and secs:
-                        hz[zone_labels[idx]] = secs
-                if hz:
-                    zones = hz
+            zones, _basis = self._get_activity_zones(act)
             
             if zones:
                 z1_time += zones.get("z1", 0)
@@ -2247,37 +2319,17 @@ class IntervalsSync:
             total_seconds = sum(a.get("moving_time", 0) or 0 for a in day_activities)
             activity_types = list(set(a.get("type", "Unknown") for a in day_activities)) if day_activities else ["Rest"]
             
-            # Zone ladder for hard day detection
-            # Cumulative thresholds: z3+ / z4+ / z5+ / z6+ / z7
-            # Per Seiler's polarized model + Foster's session RPE scaling
-            day_z3 = 0
-            day_z4 = 0
-            day_z5 = 0
-            day_z6 = 0
-            day_z7 = 0
+            # Hard day detection via shared classifier (power + HR fallback)
+            day_zones_by_basis = {}
             for a in day_activities:
-                icu_zone_times = a.get("icu_zone_times", [])
-                if icu_zone_times:
-                    for zone in icu_zone_times:
-                        zid = zone.get("id", "").lower()
-                        secs = zone.get("secs", 0)
-                        if zid == "z3":
-                            day_z3 += secs
-                        elif zid == "z4":
-                            day_z4 += secs
-                        elif zid == "z5":
-                            day_z5 += secs
-                        elif zid == "z6":
-                            day_z6 += secs
-                        elif zid == "z7":
-                            day_z7 += secs
-            is_hard = (
-                (day_z3 + day_z4 + day_z5 + day_z6 + day_z7) >= 1800 or
-                (day_z4 + day_z5 + day_z6 + day_z7) >= 600 or
-                (day_z5 + day_z6 + day_z7) >= 300 or
-                (day_z6 + day_z7) >= 120 or
-                day_z7 >= 60
-            )
+                zones, basis = self._get_activity_zones(a)
+                if zones and basis:
+                    if basis not in day_zones_by_basis:
+                        day_zones_by_basis[basis] = {}
+                    for zid, secs in zones.items():
+                        day_zones_by_basis[basis][zid] = day_zones_by_basis[basis].get(zid, 0) + secs
+            
+            is_hard, intensity_basis = self._classify_hard_day(day_zones_by_basis)
             
             rows.append({
                 "date": date_str,
@@ -2294,7 +2346,8 @@ class IntervalsSync:
                 "sleep_quality": wellness.get("sleepQuality"),
                 "feel": None,  # Not available in wellness, only in activities
                 "weight_kg": wellness.get("weight"),
-                "is_hard_day": is_hard
+                "is_hard_day": is_hard,
+                "intensity_basis": intensity_basis
             })
             
             # Check feel from activities
@@ -2371,52 +2424,37 @@ class IntervalsSync:
                 atl_end = wellness.get("atl") or atl_end
                 ramp_rate = wellness.get("rampRate") or ramp_rate
                 
-                # Zone and hard day analysis
-                day_z3 = 0
-                day_z4 = 0
-                day_z5 = 0
-                day_z6 = 0
-                day_z7 = 0
+                # Zone distribution + hard day analysis (shared helper)
+                day_zones_by_basis = {}
                 for a in day_activities:
                     ride_seconds = a.get("moving_time", 0) or 0
                     if ride_seconds > longest_ride:
                         longest_ride = ride_seconds
                     
-                    icu_zone_times = a.get("icu_zone_times", [])
-                    if icu_zone_times:
-                        for zone in icu_zone_times:
-                            zid = zone.get("id", "").lower()
-                            secs = zone.get("secs", 0)
-                            if zid in ["z1", "z2"]:
+                    zones, basis = self._get_activity_zones(a)
+                    if zones and basis:
+                        # Accumulate for hard day classification (separate by basis)
+                        if basis not in day_zones_by_basis:
+                            day_zones_by_basis[basis] = {}
+                        for zid, secs in zones.items():
+                            day_zones_by_basis[basis][zid] = day_zones_by_basis[basis].get(zid, 0) + secs
+                        
+                        # Accumulate for weekly zone distribution (combined)
+                        for zid, secs in zones.items():
+                            if zid in ("z1", "z2"):
                                 z1_z2_time += secs
                             elif zid == "z3":
                                 z3_time += secs
-                                day_z3 += secs
-                            elif zid == "z4":
+                            elif zid in ("z4", "z5", "z6", "z7"):
                                 z4_plus_time += secs
-                                day_z4 += secs
-                            elif zid == "z5":
-                                z4_plus_time += secs
-                                day_z5 += secs
-                            elif zid == "z6":
-                                z4_plus_time += secs
-                                day_z6 += secs
-                            elif zid == "z7":
-                                z4_plus_time += secs
-                                day_z7 += secs
                             total_zone_time += secs
                     
                     feel = a.get("feel")
                     if feel:
                         week_feel.append(feel)
                 
-                if (
-                    (day_z3 + day_z4 + day_z5 + day_z6 + day_z7) >= 1800 or
-                    (day_z4 + day_z5 + day_z6 + day_z7) >= 600 or
-                    (day_z5 + day_z6 + day_z7) >= 300 or
-                    (day_z6 + day_z7) >= 120 or
-                    day_z7 >= 60
-                ):
+                is_hard, _basis = self._classify_hard_day(day_zones_by_basis)
+                if is_hard:
                     hard_days += 1
             
             if ctl_end and atl_end:
@@ -2510,47 +2548,32 @@ class IntervalsSync:
                 if wellness.get("ctl"):
                     ctl_values.append(wellness["ctl"])
                 
-                day_z3 = 0
-                day_z4 = 0
-                day_z5 = 0
-                day_z6 = 0
-                day_z7 = 0
+                day_zones_by_basis = {}
                 for a in day_activities:
                     ride_seconds = a.get("moving_time", 0) or 0
                     if ride_seconds > longest_ride:
                         longest_ride = ride_seconds
                     
-                    icu_zone_times = a.get("icu_zone_times", [])
-                    if icu_zone_times:
-                        for zone in icu_zone_times:
-                            zid = zone.get("id", "").lower()
-                            secs = zone.get("secs", 0)
-                            if zid in ["z1", "z2"]:
+                    zones, basis = self._get_activity_zones(a)
+                    if zones and basis:
+                        # Accumulate for hard day classification (separate by basis)
+                        if basis not in day_zones_by_basis:
+                            day_zones_by_basis[basis] = {}
+                        for zid, secs in zones.items():
+                            day_zones_by_basis[basis][zid] = day_zones_by_basis[basis].get(zid, 0) + secs
+                        
+                        # Accumulate for monthly zone distribution (combined)
+                        for zid, secs in zones.items():
+                            if zid in ("z1", "z2"):
                                 z1_z2_time += secs
                             elif zid == "z3":
                                 z3_time += secs
-                                day_z3 += secs
-                            elif zid == "z4":
+                            elif zid in ("z4", "z5", "z6", "z7"):
                                 z4_plus_time += secs
-                                day_z4 += secs
-                            elif zid == "z5":
-                                z4_plus_time += secs
-                                day_z5 += secs
-                            elif zid == "z6":
-                                z4_plus_time += secs
-                                day_z6 += secs
-                            elif zid == "z7":
-                                z4_plus_time += secs
-                                day_z7 += secs
                             total_zone_time += secs
                 
-                if (
-                    (day_z3 + day_z4 + day_z5 + day_z6 + day_z7) >= 1800 or
-                    (day_z4 + day_z5 + day_z6 + day_z7) >= 600 or
-                    (day_z5 + day_z6 + day_z7) >= 300 or
-                    (day_z6 + day_z7) >= 120 or
-                    day_z7 >= 60
-                ):
+                is_hard, _basis = self._classify_hard_day(day_zones_by_basis)
+                if is_hard:
                     hard_days_total += 1
                 
                 date += timedelta(days=1)
