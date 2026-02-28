@@ -1,8 +1,8 @@
 # Section 11 — Workout Reference Library
 
-**Version:** 0.5.0  
+**Version:** 0.6  
 **Companion to:** Section 11 B — AI Training Plan Protocol  
-**Last updated:** 2026-02-25
+**Last updated:** 2026-02-28
 
 ---
 
@@ -511,12 +511,17 @@ These rules govern the placement of sessions within a microcycle (training week)
 
 ### 3.1 Minimum Spacing Between Hard Sessions
 - **Hard session definition (zone ladder):** A day qualifies as hard if ANY of the following cumulative thresholds are met (per Seiler/Foster, matching sync.py's `is_hard_day` logic):
-  - Z3+ ≥ 30 min (tempo and above, cumulative)
-  - Z4+ ≥ 10 min (threshold and above)
-  - Z5+ ≥ 5 min (VO₂max and above)
-  - Z6+ ≥ 2 min (anaerobic and above)
-  - Z7 ≥ 1 min (neuromuscular)
-  Higher zones need less time to qualify — 1 min of Z7 sprints is as "hard" as 30 min of Z3 tempo. Each template's YAML metadata (`is_hard_session: true/false`) reflects this ladder.
+  - **Power ladder** (preferred, 5 rungs):
+    - Z3+ ≥ 30 min (tempo and above, cumulative)
+    - Z4+ ≥ 10 min (threshold and above)
+    - Z5+ ≥ 5 min (VO₂max and above)
+    - Z6+ ≥ 2 min (anaerobic and above)
+    - Z7 ≥ 1 min (neuromuscular)
+  - **HR fallback** (when no power zones available, 2 rungs — per Seiler 3-zone model):
+    - Z4+ ≥ 10 min (sustained above LT2)
+    - Z5+ ≥ 5 min (VO₂max)
+  - HR zones are too wide and lagged for fine-grained classification. Short-duration rungs (Z6+/Z7) and the Z3 tempo trigger are invalid for HR due to cardiac lag and false-positive risk on steady-state runs. HR-classified hard days are flagged with `intensity_basis: "hr"` in daily tier output.
+  - Higher zones need less time to qualify — 1 min of Z7 sprints is as "hard" as 30 min of Z3 tempo. Each template's YAML metadata (`is_hard_session: true/false`) reflects the power ladder.
 - **Minimum gap:** 48 hours between hard sessions (i.e., at least one easy/rest day between).
 - **Exception:** Back-to-back hard days permitted only when **TSB > 0 and RI ≥ 0.85** (per Section 11 B §4).
 
