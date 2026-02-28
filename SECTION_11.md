@@ -1,11 +1,20 @@
 # Section 11 — AI Coach Protocol
 
-**Protocol Version:** 11.9  
-**Last Updated:** 2026-02-26
+**Protocol Version:** 11.10  
+**Last Updated:** 2026-02-28
 **License:** [MIT](https://opensource.org/licenses/MIT)
 
-
 ### Changelog
+
+**v11.10 — Hard Day HR Zone Fallback:**
+- Hard day counter now falls back to HR zones (`icu_hr_zone_times`) when power zones unavailable
+- Running, SkiErg, rowing sessions were invisible to phase detection — fixed
+- Conservative 2-rung HR ladder (Z4+ ≥ 10min, Z5+ ≥ 5min) per Seiler 3-zone model; power ladder unchanged
+- Shared `_get_activity_zones()` and `_classify_hard_day()` helpers across all call sites
+- Daily tier rows now include `intensity_basis` field (power/hr/mixed/null)
+- `is_hard_day` returns `null` when no zone data exists (not `false`)
+- `hard_days_this_week` field type updated to `number/null`
+- Workout Reference hard session definition (§3.1) updated with both ladders
 
 **v11.9 — Efficiency Factor Tracking:**
 - Added Efficiency Factor (EF = NP ÷ Avg HR, Coggan) to Validated Optional Metrics
@@ -26,23 +35,8 @@
 - Validation Checklist item 1 updated for sport-family lookup
 - Global estimates (`eftp`, `w_prime`, `w_prime_kj`, `p_max`, `vo2max`) remain at top level
 
-**v11.7 — Workout Reference Library Integration:**
-- Formalised Section 11 B §8 interface to the Workout Reference Library (v0.5.0)
-- AI systems must now select structured sessions exclusively from the curated template catalog
-- Added selection rules, sequencing enforcement, WU/CD mandates, and audit traceability via `session_template` field
-- Library provides 26 session templates, progression logic, deload variants, and decision matrix
-- Path: `examples/workout-library/WORKOUT_REFERENCE.md`
-
-**v11.6 — Race-Week Protocol:**
-- Added Race-Week Protocol: day-by-day decision tree for D-7 through D-0 before goal events
-- Added three-layer race awareness architecture (90-day calendar → 14-day taper onset → 7-day race week)
-- Added event-type modifiers (short/medium/long) with duration-specific TSB targets, opener intensity, carb loading triggers
-- Added go/no-go checklist (only illness/injury can recommend DNS; HRV and sleep are context only)
-- Added mandatory protocol guidance: taper tantrums, pre-race sleep/HRV, carb loading science
-- Added RACE_B modifications (lighter taper, lower TSB targets, athlete discretion prevails)
-- Race priority detection via Intervals.icu event categories (RACE_A/B/C)
-- Scientific basis: Mujika & Padilla (2003), Bosquet et al. (2007), Wang et al. (2023), Altini (HRV), Pyne et al. (2009)
-
+**v11.7** — Workout Reference Library integration (26 templates, v0.5.0), selection rules, sequencing enforcement, WU/CD mandates, audit traceability via `session_template` field  
+**v11.6** — Race-Week Protocol (D-7 to D-0), three-layer race awareness (calendar → taper onset → race week), event-type modifiers, go/no-go checklist, RACE_A/B/C priority detection via Intervals.icu  
 **v11.5** — Capability Metrics, Seiler TID classification (Treff PI, 5-class, 7→3 zone mapping), dual-timeframe TID drift detection, aggregate durability (7d/28d mean decoupling)  
 **v11.4** — Graduated alerts, history.json, confidence scoring, monotony deload context  
 **v11.3** — Output format guidelines, report templates, communication style  
@@ -1583,7 +1577,7 @@ This subsection defines the formal self-validation and audit metadata structure 
 | `stress_tolerance`             | number   | Current load absorption capacity                                                    |
 | `grey_zone_percentage`         | number   | Grey zone time as percentage — to minimize                                          |
 | `quality_intensity_percentage` | number   | Quality intensity time as percentage                                                |
-| `hard_days_this_week`          | number   | Count of days meeting zone ladder thresholds: Z3+ ≥ 30min, Z4+ ≥ 10min, Z5+ ≥ 5min, Z6+ ≥ 2min, or Z7 ≥ 1min |
+| `hard_days_this_week`          | number/null | Count of days meeting zone ladder thresholds. **Power ladder** (5 rungs): Z3+ ≥ 30min, Z4+ ≥ 10min, Z5+ ≥ 5min, Z6+ ≥ 2min, or Z7 ≥ 1min. **HR fallback** (2 rungs, when no power zones): Z4+ ≥ 10min or Z5+ ≥ 5min. `null` if no zone data exists. Per Seiler 3-zone model + Foster |
 | `polarisation_index`           | number   | Easy time (Z1+Z2) as ratio of total                                                 |
 | `specificity_volume_ratio`     | number   | Event-specific volume ratio (0–1)                                                   |
 | `load_recovery_ratio`          | number   | 7-day load divided by RI (secondary metric)                                         |
