@@ -1,15 +1,8 @@
 {
-  "notification_id": "2026-02-26",
+  "notification_id": "2026-02-28",
   "changes": [
-    "SECTION_11.md - FEATURE - v11.9: Efficiency Factor (EF = NP ÷ Avg HR) added to Validated Optional Metrics with trend tracking (improving/stable/declining). Report templates updated across all four levels",
-    "SECTION_11.md - FEATURE - v11.8: Per-Sport Threshold Schema — thresholds.sports keyed by sport family, cross-sport application forbidden, deterministic collision resolution, FTP Governance clarified as cycling-specific. sync.py implementation pending",
-    "SECTION_11.md - FEATURE - v11.7: Workout Reference Library Integration — 26 session templates (v0.5.0), selection rules, sequencing enforcement, WU/CD mandates, audit traceability via session_template field",
-    "sync.py - FEATURE - v3.6.0: Efficiency Factor tracking — pulls icu_efficiency_factor from API, aggregates 7d/28d in capability namespace with qualifying filters (cycling, VI ≤ 1.05, ≥ 20min)",
-    "sync.py - FIX - v3.5.1: HRV outlier filter — _is_valid_hrv() helper filters sensor errors (10-250ms range), applied to baselines, Recovery Index, persistence counts, summaries",
-    "sync.py - UPDATE: Planned workouts display window extended from 21 to 42 days",
-    "SETUP_ASSISTANT.md - NEW FILE: AI-guided setup assistant — golden path framing, web chat vs agent path, tested across 6 AI platforms",
-    "examples/workout-library/ - NEW: Workout Reference Library v0.5.0 — 26 structured session templates with YAML metadata, progression logic, deload variants, decision matrix",
-    "examples/reports/ - UPDATE: All report templates and examples updated with EF metric (per-session, aggregate, by-week trajectory)",
-    "PRE_WORKOUT_TEMPLATE.md - FIX: Renamed to PRE_WORKOUT_REPORT_TEMPLATE.md for naming consistency"
+    "sync.py - FIX - v3.6.1: Hard day HR zone fallback — falls back to icu_hr_zone_times when power zones unavailable. Conservative 2-rung HR ladder (Z4+ >= 10min, Z5+ >= 5min) per Seiler 3-zone model. Shared helpers, intensity_basis field in daily tier, null for unknown",
+    "SECTION_11.md - v11.10: Hard day field definition updated for HR fallback + null semantics. Per-sport thresholds sync.py implementation done (was pending). Thanks @pove",
+    "examples/reports/ - OVERHAUL: All report templates, examples, README, and report hierarchy updated"
   ]
 }
