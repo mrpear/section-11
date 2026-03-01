@@ -4,6 +4,11 @@ Intervals.icu → GitHub/Local JSON Export
 Exports training data for LLM access.
 Supports both automated GitHub sync and manual local export.
 
+Version 3.6.2 - Calendar Context Extensions
+  - Add days_from_now and day_of_week fields to activities and planned workouts
+  - Eliminates AI date calculation errors by providing pre-computed temporal context
+  - _enrich_date_context() helper calculates relative days and weekday names
+
 Version 3.6.1 - Hard Day HR Zone Fallback
   - Hard day counter falls back to icu_hr_zone_times when power zones unavailable
   - Conservative 2-rung HR ladder (Z4+ >= 10min, Z5+ >= 5min) per Seiler 3-zone model
@@ -49,7 +54,7 @@ class IntervalsSync:
     HISTORY_FILE = "history.json"
     UPSTREAM_REPO = "CrankAddict/section-11"
     CHANGELOG_FILE = "changelog.json"
-    VERSION = "3.6.1"
+    VERSION = "3.6.2"
 
     # Sport family mapping for per-sport monotony calculation
     # Multi-sport athletes get inflated total monotony when cross-training
@@ -101,7 +106,25 @@ class IntervalsSync:
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         return response.json()
-    
+
+    def _enrich_date_context(self, date_str: str) -> Tuple[Optional[int], Optional[str]]:
+        """Calculate days_from_now and day_of_week for a date string.
+
+        Args:
+            date_str: Date in "YYYY-MM-DDTHH:MM:SS" format
+
+        Returns:
+            (days_from_now, day_of_week) tuple
+        """
+        try:
+            target = datetime.strptime(date_str[:10], "%Y-%m-%d")
+            today = datetime.now()
+            days_from_now = (target.date() - today.date()).days
+            day_of_week = target.strftime("%A")
+            return days_from_now, day_of_week
+        except (ValueError, AttributeError, TypeError):
+            return None, None
+
     def _fetch_today_wellness(self) -> Dict:
         """
         Fetch today's wellness data which contains:
@@ -2940,9 +2963,15 @@ class IntervalsSync:
                 if act.get("type", "") in self.OUTDOOR_TYPES:
                     activity_name = "Training Session"
             
+            # Get calendar context
+            date_str = act.get("start_date_local", "unknown")
+            days_from_now, day_of_week = self._enrich_date_context(date_str)
+
             activity = {
                 "id": f"activity_{i+1}" if anonymize else act.get("id", f"unknown_{i+1}"),
-                "date": act.get("start_date_local", "unknown"),
+                "date": date_str,
+                "days_from_now": days_from_now,
+                "day_of_week": day_of_week,
                 "type": act.get("type", "Unknown"),
                 "name": activity_name,
                 "duration_hours": round((act.get("moving_time") or 0) / 3600, 2),
@@ -3004,15 +3033,26 @@ class IntervalsSync:
     
     def _format_events(self, events: List[Dict], anonymize: bool = False) -> List[Dict]:
         """Format planned workouts"""
-        return [{
-            "id": f"event_{i+1}" if anonymize else evt.get("id", f"unknown_{i+1}"),
-            "date": evt.get("start_date_local", "unknown"),
-            "name": "Planned Workout" if anonymize else evt.get("name", ""),
-            "type": evt.get("category", ""),
-            "description": evt.get("description", ""),
-            "planned_tss": evt.get("icu_training_load"),
-            "duration_hours": round(evt.get("duration", 0) / 3600, 2)
-        } for i, evt in enumerate(events)]
+        formatted = []
+        for i, evt in enumerate(events):
+            # Get calendar context
+            date_str = evt.get("start_date_local", "unknown")
+            days_from_now, day_of_week = self._enrich_date_context(date_str)
+
+            event = {
+                "id": f"event_{i+1}" if anonymize else evt.get("id", f"unknown_{i+1}"),
+                "date": date_str,
+                "days_from_now": days_from_now,
+                "day_of_week": day_of_week,
+                "name": "Planned Workout" if anonymize else evt.get("name", ""),
+                "type": evt.get("category", ""),
+                "description": evt.get("description", ""),
+                "planned_tss": evt.get("icu_training_load"),
+                "duration_hours": round(evt.get("duration", 0) / 3600, 2)
+            }
+            formatted.append(event)
+
+        return formatted
     
     def _build_race_calendar(self, future_events: List[Dict], current_ctl: float,
                               current_atl: float, current_tsb: float,
