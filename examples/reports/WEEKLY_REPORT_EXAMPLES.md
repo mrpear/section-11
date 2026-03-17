@@ -10,16 +10,17 @@
 ```
 Week 2 Summary (27 Jan – 02 Feb 2026)
 Block: Threshold Development — Week 2/4
-Phase: Build
+Phase: Build — week 4 (confidence: high)
+  Basis: Rising CTL, 2-3 hard days sustained
 
 Compliance: 6/6 sessions completed
 Planned TSS: 520 | Actual TSS: 537 (103%)
-Hours: 14.2h (prev week: 13.8h)
+Hours: 14h12m (prev week: 13h48m)
 
 Session Breakdown:
   Mon: Recovery spin — 32 TSS ✅
   Tue: Sweetspot 2x20 — 89 TSS ✅
-  Wed: Endurance 2.5h — 78 TSS ✅
+  Wed: Endurance 2h30m — 78 TSS ✅
   Thu: VO2max 5x4min — 95 TSS ✅
   Fri: Endurance 3h + SkiErg — 112 TSS ✅
   Sat: Rest — 0 TSS ✅
@@ -36,6 +37,7 @@ Quality Session Detail:
     Decoupling: 4.8% (good)
     VI: 1.03 (good)
     HR: 168 avg / 178 max
+    HRRc: 42 bpm
 
 Polarization:
   Z1+Z2: 83%
@@ -52,6 +54,10 @@ Efficiency Factor (steady-state cycling, VI ≤ 1.05, ≥ 20min):
   7d mean(4): 1.47 | 28d mean(14): 1.44
   Trend: stable
 
+HRRc:
+  7d mean(2): 38 bpm | 28d mean(6): 36 bpm
+  Trend: stable
+
 Fitness:
   CTL: 78.2 → 80.6 (Δ +2.4)
   ATL: 82.1 → 85.3
@@ -64,7 +70,9 @@ Fitness:
 Wellness Trends:
   HRV: 48–62 ms (avg 54, prev week 56) →
   RHR: 47–52 bpm (avg 49, prev week 48) →
-  Sleep: 7.2h avg, quality 2.2/4 avg →
+  Sleep: 7h12m avg, quality 2.2/4 avg →
+  Avg Feel: 2.2/5 (5 sessions) →
+  Avg RPE: 4.8/10 (5 sessions) →
 
 Section 11 Flags: None
 
@@ -77,7 +85,7 @@ TSB drifting slightly negative but manageable heading into week 3.
 
 Next Week Preview:
 Week 3 is peak load before deload. Tuesday sweetspot extends to 2x25,
-Thursday VO2max adds a 6th interval. Sunday long ride targets 4.5h.
+Thursday VO2max adds a 6th interval. Sunday long ride targets 4h30m.
 Monitor HRV early in the week — if it drops below 45ms, consider
 modifying Thursday's session.
 ```
@@ -93,7 +101,7 @@ Phase: Base
 
 Compliance: 5/7 sessions completed (1 modified, 1 missed)
 Planned TSS: 480 | Actual TSS: 392 (82%)
-Hours: 12.1h (prev week: 14.8h)
+Hours: 12h6m (prev week: 14h48m)
 
 Session Breakdown:
   Mon: Recovery spin — 28 TSS ✅
@@ -102,7 +110,7 @@ Session Breakdown:
   Thu: Rest (unplanned) — 0 TSS ❌ (poor sleep, HRV drop)
   Fri: Endurance 3h — 98 TSS ✅
   Sat: Yoga/mobility — 0 TSS ✅
-  Sun: Long ride 3.5h — 128 TSS ✅
+  Sun: Long ride 3h30m — 128 TSS ✅
 
 Quality Session Detail:
   Tempo 3x15 (modified to 2x15):
@@ -126,6 +134,9 @@ Efficiency Factor (steady-state cycling, VI ≤ 1.05, ≥ 20min):
   7d mean(3): 1.38 | 28d mean(11): 1.44
   Trend: declining
 
+HRRc:
+  22 bpm 28d mean(3) — 7d: no data
+
 Fitness:
   CTL: 72.4 → 71.1 (Δ -1.3)
   ATL: 88.6 → 78.2
@@ -138,7 +149,9 @@ Fitness:
 Wellness Trends:
   HRV: 39–51 ms (avg 44, prev week 52) ↓ declining — monitor
   RHR: 50–56 bpm (avg 53, prev week 49) ↑ elevated — monitor
-  Sleep: 6.1h avg, quality 3.2/4 avg ↓ declining — monitor
+  Sleep: 6h6m avg, quality 3.2/4 avg ↓ declining — monitor
+  Avg Feel: 3.6/5 (4 sessions) ↓ declining — monitor
+  Avg RPE: 6.8/10 (4 sessions) ↑ elevated — monitor
 
 Section 11 Flags:
   - HRV below 7-day baseline by >15% on Thu → triggered rest day

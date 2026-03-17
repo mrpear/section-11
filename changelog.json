@@ -1,8 +1,11 @@
 {
-  "notification_id": "2026-02-28",
+  "notification_id": "2026-03-17",
   "changes": [
-    "sync.py - FIX - v3.6.1: Hard day HR zone fallback — falls back to icu_hr_zone_times when power zones unavailable. Conservative 2-rung HR ladder (Z4+ >= 10min, Z5+ >= 5min) per Seiler 3-zone model. Shared helpers, intensity_basis field in daily tier, null for unknown",
-    "SECTION_11.md - v11.10: Hard day field definition updated for HR fallback + null semantics. Per-sport thresholds sync.py implementation done (was pending). Thanks @pove",
-    "examples/reports/ - OVERHAUL: All report templates, examples, README, and report hierarchy updated"
+    "— sync.py v3.84 — Activity description and chat_notes on completed activities. Phase week off-by-one fix (2026-03-15) —",
+    "— sync.py v3.85 + SECTION_11.md v11.16 — Remaining wellness fields added (~20 new). wellness_field_scales legend. hrvSDNN case fix (2026-03-15) —",
+    "— sync.py v3.86 — planned_tss_delta filters to primary sport. sport_tss_breakdown on weekly rows (2026-03-15) —",
+    "— SECTION_11.md v11.17 — Phase context and tomorrow preview in pre/post-workout report templates (2026-03-17) —",
+    "— Documentation — JSON examples refreshed to v3.85 schema, moved to examples/json-examples/. Strava data stripping warning in README + SETUP_ASSISTANT (2026-03-15) —",
+    "Most files touched — recommend pulling a fresh copy."
   ]
 }

@@ -4,6 +4,8 @@ This guide explains how to create an automated JSON data mirror of your Interval
 
 > **Prefer an interactive guide?** Paste [SETUP_ASSISTANT.md](../../SETUP_ASSISTANT.md) into any AI chat and it will walk you through this entire setup step by step.
 
+> **Running an agentic platform locally?** If your AI coach runs on the same machine as your data (OpenClaw, Claude Code, Cowork, etc.), consider [local sync](../json-local-sync/SETUP.md) instead — simpler setup, no GitHub needed, data never leaves your machine.
+
 ---
 
 ## Overview
@@ -14,6 +16,7 @@ The data mirror automatically syncs your Intervals.icu metrics to a GitHub repos
 - `https://raw.githubusercontent.com/[you]/[repo]/main/latest.json`
 - `https://raw.githubusercontent.com/[you]/[repo]/main/history.json`
 - `https://raw.githubusercontent.com/[you]/[repo]/main/ftp_history.json`
+- `https://raw.githubusercontent.com/[you]/[repo]/main/intervals.json`
 
 ---
 
@@ -46,7 +49,7 @@ The data mirror automatically syncs your Intervals.icu metrics to a GitHub repos
 
 1. Go to [github.com/new](https://github.com/new)
 2. Name it something like `training-data`
-3. Set to **Private** (recommended) or Public (required for AI platform access without agent integration)
+3. Set to **Private** (recommended) — most AI platforms now have GitHub connectors that can access private repos. See the [main README](../../README.md#platform-setup) for details.
 4. Check Add a README file
 5. Click **Create repository**
 
@@ -77,11 +80,38 @@ Then add these files to your repository:
 | `ATHLETE_ID` | Your Intervals.icu athlete ID (e.g., `i123456`) |
 | `INTERVALS_KEY` | Your Intervals.icu API key |
 
+**Optional:** If your training week starts on a day other than Monday, add one more secret:
+
+| Secret Name | Value |
+|-------------|-------|
+| `WEEK_START` | Training week start day: `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, or `sun` |
+
+If not set, defaults to `mon` (ISO week). This controls phase detection windows — ensures deload/build classification aligns with your actual training week structure.
+
+**Optional:** If you want HR zones used for aggregations in specific sports (e.g., running with auto-generated watch power):
+
+| Secret Name | Value |
+|-------------|-------|
+| `ZONE_PREFERENCE` | Per-sport zone override, e.g. `run:hr,cycling:power` |
+
+Only override what you need — unspecified sports default to power-preferred with HR fallback. Valid values per sport are `power` or `hr`. Sport families: `cycling`, `run`, `ski`, `rowing`, `swim`, `walk`, `strength`, `other`.
+
 **Note:** `GITHUB_TOKEN` is provided automatically by GitHub Actions.
 
 ---
 
-## Step 4: Enable GitHub Actions
+## Step 4: Enable Workflow Permissions
+
+1. Still in **Settings**, click **Actions → General** in the left sidebar
+2. Scroll down to **"Workflow permissions"**
+3. Select **"Read and write permissions"**
+4. Click **Save**
+
+This allows the sync workflow to commit updated data files to the repo. Without this, the workflow may fail silently on push.
+
+---
+
+## Step 5: Enable GitHub Actions
 
 1. Go to your repo → **Actions** tab
 2. If prompted, enable workflows
@@ -90,29 +120,31 @@ Then add these files to your repository:
 
 Wait 30-60 seconds, then check if `latest.json` has been updated.
 
+If the run fails with a permission error, go back and check that workflow permissions are set to "Read and write" in Step 4.
+
 ---
 
-## Step 5: Verify
+## Step 6: Verify
 
 Your data should now be accessible at:
 ```
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/latest.json
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/history.json
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/ftp_history.json
+https://raw.githubusercontent.com/[your-username]/[repo-name]/main/intervals.json
 ```
 
 Test by opening the URLs in your browser — you should see your training data as JSON.
 
 - `latest.json` — current 7-day snapshot with activities, wellness, fitness metrics, and derived Section 11 values
 - `history.json` — longitudinal data with tiered granularity: daily (90 days), weekly (180 days), and monthly (up to 3 years). Generated automatically on first run, regenerated when outdated.
+- `intervals.json` — per-interval segment data for recent structured sessions (7-day retention). Generated automatically for activities with detected interval structure.
 
 ---
 
 ## FTP History Tracking
 
 The sync script automatically creates and maintains `ftp_history.json` to track FTP changes over time. This enables **Benchmark Index** calculation.
-
-### File Structure
 
 ```json
 {
@@ -128,8 +160,6 @@ The sync script automatically creates and maintains `ftp_history.json` to track 
   }
 }
 ```
-
-### How It Works
 
 - Created automatically on first run of `sync.py`
 - New entries added only when FTP **changes** (not on every run)
@@ -158,16 +188,19 @@ Benchmark Index = (Current FTP - FTP 8 weeks ago) / FTP 8 weeks ago
 
 ## Usage with AI
 
-Once set up, configure your AI platform using the instructions in the main [README](../README.md#quick-start).
+Once set up, configure your AI platform using the instructions in the [main README](../../README.md#web-chat-setup).
 
-Your JSON URLs:
+**GitHub connector users:** If your AI platform has a GitHub connector, connect your data repo directly — the AI reads `latest.json`, `history.json`, `intervals.json`, and any other committed files through the connector. No URLs needed. If you commit `DOSSIER.md` and `SECTION_11.md` to the repo, the connector provides everything in one connection.
+
+**URL fetch users:** Provide these URLs to your AI coach:
 ```
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/latest.json
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/history.json
 https://raw.githubusercontent.com/[your-username]/[repo-name]/main/ftp_history.json
+https://raw.githubusercontent.com/[your-username]/[repo-name]/main/intervals.json
 ```
 
-Provide all 3 URLs to your AI coach — `latest.json` has the current 7-day snapshot and `history.json` provides longitudinal context for trend analysis.
+`latest.json` has the current 7-day snapshot, `history.json` provides longitudinal context for trend analysis, and `intervals.json` has per-interval detail for recent structured sessions.
 
 ---
 
@@ -197,8 +230,10 @@ Provide all 3 URLs to your AI coach — `latest.json` has the current 7-day snap
 
 ### 404 error on JSON URL
 - Ensure `latest.json` exists in repo root
-- If using a private repo, normal AI chats cannot access these URLs — use an agent platform or upload files manually (see "Using Private Repos with AI Agents" below)
 - If using a public repo, verify URL format (use `main` not `master`)
+- For private repo access from AI platforms, see the [main README troubleshooting](../../README.md#troubleshooting)
+
+For general AI platform issues (data not fetching, AI fabricating metrics, connector problems), see the [main README troubleshooting guide](../../README.md#troubleshooting).
 
 ---
 
@@ -228,27 +263,10 @@ run: python sync.py --no-anonymize
 By default, the script anonymizes your data:
 - Athlete ID → "REDACTED"
 - Outdoor activity names → "Training Session"
-- Activity IDs → Generic `activity_1`, `activity_2`, etc.
 
-Indoor/virtual ride names are preserved for workout identification.
+Activity and event IDs are always real (opaque database keys, not PII) to enable features like coach annotations and planned-vs-actual pairing. Indoor/virtual ride names are preserved for workout identification.
 
 For additional privacy, use a **private repository** and a separate GitHub account for your data repository.
-
----
-
-## Using Private Repos with AI Agents
-
-Normal AI chats (ChatGPT Projects, Claude Projects, Gemini Gems, etc.) cannot access private GitHub repos — they need public URLs or manual file uploads. Agent platforms can access private repos through their own GitHub integrations:
-
-**OpenClaw** — Install the GitHub skill and authenticate with `gh auth login`. Once authenticated, OpenClaw can read files from any private repo your token has access to. For limited access, use a [fine-grained personal access token](https://github.com/settings/tokens?type=beta) scoped to your data repo only.
-
-**Claude Cowork** — Clone your private repo locally and grant Cowork access to that folder. Alternatively, use the GitHub MCP connector in Cowork settings to access repos directly via a personal access token.
-
-**OpenAI Codex** — Connect your GitHub account via the ChatGPT GitHub connector at [chatgpt.com/codex](https://chatgpt.com/codex) and authorize access to your private repo during setup. The Codex CLI works locally with your existing filesystem and Git setup.
-
-**Claude Code** — Install the Claude GitHub App at [github.com/apps/claude](https://github.com/apps/claude/installations/select_target) and grant access to your private data repo. Or simply clone the repo locally and work with local files.
-
-Section 11 itself does not handle GitHub authentication — it reads files from whatever locations your environment can already access.
 
 ---
 
@@ -258,9 +276,12 @@ Section 11 itself does not handle GitHub authentication — it reads files from 
 |------|---------|--------------|
 | `latest.json` | Current 7-day training data for AI consumption | Yes |
 | `history.json` | Longitudinal data — daily (90d), weekly (180d), monthly (3y) | Yes |
+| `intervals.json` | Per-interval segment data for recent structured sessions | Yes |
 | `ftp_history.json` | FTP progression tracking for Benchmark Index | Yes |
 | `archive/` | Timestamped snapshots of each sync | Yes |
 
 ## Update Notifications
 
-The sync script automatically checks for upstream protocol updates from the [Section 11 repository](https://github.com/CrankAddict/section-11). When a new version is available, a GitHub Issue is created in your data repo with a summary of changes. No action is needed — just watch your Issues tab.
+The sync script checks for upstream updates using `manifest.json` from the [Section 11 repository](https://github.com/CrankAddict/section-11). When new versions are available, a GitHub Issue is created in your data repo listing the changed files. No action is needed — just watch your Issues tab.
+
+For local setups (non-GitHub), see [json-local-sync](../json-local-sync/SETUP.md#staying-up-to-date) for the local update mechanism.

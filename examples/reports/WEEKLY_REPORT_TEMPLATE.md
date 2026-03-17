@@ -11,11 +11,13 @@ Generated at end of training week (Saturday or Sunday morning).
 ```
 Week [X] Summary ([date range])
 Block: [Name] — Week [X/Y]
-Phase: [Base/Build/Peak/Taper/Recovery]
+Phase: [Phase] — week [phase_duration_weeks] (confidence: [confidence])
+  [If previous_phase differs: "Transitioned from [previous_phase]"]
+  [If key reason_codes: "[1-2 codes in plain English]"]
 
 Compliance: [X/X] sessions completed
 Planned TSS: [XXX] | Actual TSS: [XXX] ([XX]%)
-Hours: [XX.X]h (prev week: [XX.X]h)
+Hours: [XhYm] (prev week: [XhYm])
 
 Session Breakdown:
   Mon: [workout name] — [XXX] TSS ✅/⚠️/❌
@@ -53,6 +55,10 @@ Efficiency Factor (steady-state cycling, VI ≤ 1.05, ≥ 20min):
   7d mean([X]): [X.XX] | 28d mean([X]): [X.XX]
   Trend: [improving/stable/declining]
 
+HRRc (when 28d has ≥ 3 qualifying sessions):
+  [If 7d ≥ 1]: [XX] bpm 7d mean([X]) / [XX] bpm 28d mean([X]) ([trend])
+  [If 7d = 0]: [XX] bpm 28d mean([X]) — 7d: no data
+
 Fitness:
   CTL: [XX.X] → [XX.X] (Δ [+/-X.X])
   ATL: [XX.X] → [XX.X]
@@ -67,7 +73,9 @@ Fitness:
 Wellness Trends:
   HRV: [XX]–[XX] ms (avg [XX], prev week [XX]) [↑/↓/→]
   RHR: [XX]–[XX] bpm (avg [XX], prev week [XX]) [↑/↓/→]
-  Sleep: [X.X]h avg, quality [X.X]/4 avg [↑/↓/→]
+  Sleep: [XhYm] avg, quality [X.X]/4 avg [↑/↓/→]
+  Avg Feel: [X.X]/5 ([X] sessions) [↑/↓/→]
+  Avg RPE: [X.X]/10 ([X] sessions) [↑/↓/→]
 
 Section 11 Flags: [list any triggered flags, or "None"]
 
@@ -93,8 +101,11 @@ focus areas. Reference load targets and phase progression.]
 | **TID 7d vs 28d** | Seiler classification comparison | Consistent = stable, shifting = classification changed, acute_depolarization = PI dropped |
 | **Durability** | Aggregate decoupling from steady-state sessions | VI ≤ 1.05, ≥ 90min, power data. Trend direction matters more than absolute values |
 | **Efficiency Factor** | Aggregate EF from steady-state cycling | VI ≤ 1.05, ≥ 20min, power+HR. Rising EF = improving aerobic fitness. Compare like-for-like only |
+| **HRRc** | Aggregate heart rate recovery from capability.hrrc | Largest 60s HR drop after threshold. Higher = better. Omit entire section if 28d < 3 qualifying sessions. Display only when `hrrc` is non-null per activity |
 | **ACWR breakdown** | 7d acute / 28d chronic | Show components so athlete understands the ratio |
 | **Wellness arrows** | Week-over-week comparison | ↑ improving, ↓ declining, → stable |
+| **Avg Feel** | Activity-level average from `weekly_180d.avg_feel` | 1=Strong to 5=Weak. Count = sessions with feel populated. Omit line if 0 sessions. Lower is better |
+| **Avg RPE** | Activity-level average from `weekly_180d.avg_rpe` | 1–10 Borg scale. Count = sessions with RPE populated. Omit line if 0 sessions |
 | **Section 11 Flags** | Protocol flag triggers | Surface mid-week flags here, don't wait for block report |
 | **Ramp rate** | CTL change per week | >1.5 = aggressive, monitor closely |
 
@@ -109,13 +120,20 @@ focus areas. Reference load targets and phase progression.]
 | Durability (7d mean) | <3% (good) | 3–5% (moderate) | >5% (declining) |
 | Durability trend | improving/stable | declining | declining >2% vs 28d |
 | EF trend | improving/stable | declining | declining >0.05 vs 28d |
+| HRRc trend | improving (7d >10% above 28d) | stable (within 10%) | declining (7d >10% below 28d) |
 | TID drift | consistent | shifting | acute_depolarization |
 | HRV trend | ↑ or → (stable) | ↓ <5% (minor) | ↓ >10% (flag) |
 
 ## Notes
 
 - **Session Breakdown** starts on Monday (or user's configured week start)
+- **Phase narrative** is constructed from `phase_detection` fields: `phase_detection.phase` + `phase_detection.phase_duration_weeks` + `phase_detection.confidence`. If `phase_detection.previous_phase` differs from current phase, add transition note. Optionally surface 1-2 key `reason_codes` in plain English (e.g., `BUILD_HISTORY_REDUCED_LOAD_REBOUND_CONFIRMED` → "load resumed after deload")
 - **Quality Session Detail** only includes hard/intensity sessions — omit recovery/endurance rides unless metrics were notable. Cap at 2–3 key sessions per week; if 4+ hard days occurred, prioritize sessions with the most notable targets, flags, or breakthroughs
+- **HRRc** — three display cases: (1) omit entirely if 28d < 3 qualifying sessions; (2) show full trend line if both 7d and 28d have data; (3) show `[XX] bpm 28d mean([X]) — 7d: no data` if 28d qualifies but 7d has no qualifying sessions. Per-session HRRc can still appear in Quality Session Detail when present. HRRc is context-dependent: varies with exercise intensity, type, and when recording stopped. Trend direction over multiple sessions matters; single-session values are noisy
 - **Section 11 Flags** should surface immediately in weekly reports, not deferred to block reports
 - **Wellness arrows** use simple thresholds: >5% change from previous week = ↑ or ↓, otherwise →
 - Keep "Interpretation" concise — this is coaching interpretation, not data repetition
+
+## Formatting Rule
+
+- **Durations and sleep:** Always use `_formatted` fields from JSON (e.g., `sleep_formatted`, `duration_formatted`, `total_training_formatted`). Never convert decimal `_hours` fields to display format — the formatted values are pre-calculated from raw seconds and avoid rounding errors.

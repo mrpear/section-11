@@ -17,7 +17,7 @@ Volume Progression:
   Wk 2: 14.2h / 537 TSS | CTL 78.2
   Wk 3: 15.1h / 568 TSS | CTL 82.0
   Wk 4: deload — 8.6h / 285 TSS | CTL 80.1
-  Block total: 51.7h / 1888 TSS
+  Block total: 51h42m / 1888 TSS
 
 Compliance:
   Sessions: 25/26 completed (96%)
@@ -34,7 +34,7 @@ Fitness Progression:
 Key Performance Markers:
   Sweetspot power: 241W → 253W (target: 248W — hit ✅)
   VO2max power: 298W → 312W (target: 305W — hit ✅)
-  Long ride duration: 3.5h → 4.5h
+  Long ride duration: 3h30m → 4h30m
   Long ride decoupling trend: 4.8% → 2.1% ↑ improving
   Best 20-min power: 278W (week 3)
   Best 5-min power: 318W (week 3)
@@ -69,7 +69,9 @@ Efficiency Factor by Week:
 Wellness (block avg vs previous block):
   HRV: 53 ms (prev block: 51 ms) ↑ improving
   RHR: 49 bpm (prev block: 50 bpm) → stable — no concern
-  Sleep: 7.1h (prev block: 6.8h) ↑ improving
+  Sleep: 7h6m (prev block: 6h48m) ↑ improving
+  Avg Feel: 2.4/5 (18 sessions) (prev block: 2.6/5) → stable
+  Avg RPE: 4.5/10 (18 sessions) (prev block: 4.2/10) → stable
   Avg RI: 0.91 (prev block: 0.87)
   Avg Monotony: 1.82 (normal)
 
@@ -128,7 +130,7 @@ Volume Progression:
   Wk 3: 12.1h / 392 TSS | CTL 79.8
   Wk 4: 9.2h / 298 TSS | CTL 76.3
   Wk 5: 13.5h / 468 TSS | CTL 77.1
-  Block total: 64.9h / 2210 TSS
+  Block total: 64h54m / 2210 TSS
 
 Compliance:
   Sessions: 28/35 completed (80%)
@@ -151,7 +153,7 @@ Fitness Progression:
 Key Performance Markers:
   Sweetspot power: 253W → 245W (target: 248W — below ❌)
   VO2max power: 312W → N/A (no VO2max sessions completed post-illness)
-  Long ride duration: 4.5h → 3.5h (reduced during recovery)
+  Long ride duration: 4h30m → 3h30m (reduced during recovery)
   Long ride decoupling trend: 2.1% → 3.8% → slightly regressed
   Best 20-min power: 272W (week 2)
   Best 5-min power: 308W (week 2)
@@ -189,7 +191,9 @@ Efficiency Factor by Week:
 Wellness (block avg vs previous block):
   HRV: 47 ms (prev block: 53 ms) ↓ declining — flag
   RHR: 52 bpm (prev block: 49 bpm) ↑ elevated — monitor
-  Sleep: 6.4h (prev block: 7.1h) ↓ declining — monitor
+  Sleep: 6h24m (prev block: 7h6m) ↓ declining — monitor
+  Avg Feel: 3.8/5 (14 sessions) (prev block: 2.4/5) ↓ declining — flag
+  Avg RPE: 7.2/10 (14 sessions) (prev block: 4.5/10) ↑ elevated — flag
   Avg RI: 0.79 (prev block: 0.91)
   Avg Monotony: 2.10 (elevated during illness recovery)
 

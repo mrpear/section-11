@@ -12,9 +12,10 @@ Weather ([Location]): [icon] [temp]°C, [humidity]% humidity, [conditions], wind
 Coach note: [Brief weather-relevant tip. Omit if no actionable weather context.]
 
 Current Status Summary:
+Phase: [phase_detection.phase] Wk[phase_detection.phase_duration_weeks]
 RHR: [XX] bpm (baseline: [XX] bpm)
 HRV: [XX] ms (7d avg: [XX] ms)
-Sleep Hours: [X.XX] hours
+Sleep: [XhYm]
 Sleep Quality: [X/4]
 TSB: [X.XX]
 CTL: [XX.XX]
@@ -28,7 +29,7 @@ TID 28d: [Classification] (PI: [X.XX]) — drift: [shifting/acute_depolarization
 Durability: [X.XX]% 7d mean([X]) ([trend])
 EF: [X.XX] 7d mean([X]) ([trend])
 Monotony: [X.XX] ([primary sport] [X.XX], total [X.XX]) — [note]
-Total hours, last 7 days: [XX.XX] hours
+Total hours, last 7 days: [XhYm]
 Total activities, last 7 days: [XX]
 Total TSS, last 7 days: [XXX]
 
@@ -38,11 +39,15 @@ Planned Workouts for Today (Planned TSS: [XXX]):
 [If rest day: "Rest day — no sessions scheduled."]
 [If rest day: "Next session: [Day] — [workout preview]"]
 
-Recommendation: [Go / Modify / Skip]
+Recommendation: [readiness_decision.recommendation — Go / Modify / Skip]
 
 Interpretation:
 [2-4 sentences: readiness vs baselines, load context,
-suitability (proceed/modify/skip with rationale), coach tip.]
+suitability (proceed/modify/skip with rationale), coach tip.
+Use readiness_decision.signals for individual signal values.
+If recommendation is Modify, reference readiness_decision.modification
+for adjustment directions (intensity/volume/cap_zone).
+AI may override the pre-computed recommendation with explicit rationale.]
 ```
 
 ---
@@ -51,6 +56,7 @@ suitability (proceed/modify/skip with rationale), coach tip.]
 
 | Field | Rule |
 |-------|------|
+| Phase | Include only when `phase_detection.confidence` is "high" or "medium". Omit when "low" or phase is null |
 | Weather | Include if athlete location is available via profile or memory |
 | Coach note (weather) | Include only if actionable (e.g., dress warm, indoor day) |
 | Monotony | Include **only** if > 2.3. Omit entirely when normal |
@@ -63,19 +69,24 @@ suitability (proceed/modify/skip with rationale), coach tip.]
 
 ## Readiness Decision Logic
 
-| Signal | Go | Modify | Skip |
-|--------|-----|--------|------|
-| HRV | Within ±10% of 7d avg | ↓ 10-20% | ↓ >20% |
-| RHR | At or below baseline | ↑ 3-4 bpm | ↑ ≥5 bpm |
-| Sleep | ≥ 7h, quality 1-2 | 5-7h or quality 3 | < 5h or quality 4 |
-| TSB | > -15 | -15 to -25 | < -25 |
-| ACWR | 0.8–1.3 | 1.3–1.5 | > 1.5 |
-| Feel | ≤ 3/5 | 4/5 | ≥ 4/5 + other flags |
+The `readiness_decision` object in `latest.json` provides a pre-computed go/modify/skip recommendation with priority level and individual signal statuses. Use this as the baseline.
 
-> A single amber signal doesn't require modification. **Two or more amber signals** or **any red signal** should trigger Modify or Skip.
+**Signal statuses** are in `readiness_decision.signals` (hrv, rhr, sleep, tsb, acwr, ri — each with green/amber/red/unavailable and raw values).
+
+**Phase-adjusted thresholds** are in `readiness_decision.phase_context` (shows which phase modifier shifted the amber threshold).
+
+**Modification guidance** is in `readiness_decision.modification` when recommendation is "modify" (trigger categories + adjustment directions: intensity/volume/cap_zone).
+
+> The AI may override the pre-computed recommendation with explicit rationale in the Interpretation section. The `readiness_decision` is the deterministic baseline, not a constraint. If contextual factors (dossier notes, conversation history, athlete-reported info) suggest a different call, explain why.
+
+For the full priority ladder (P0–P3) and signal classification thresholds, see **Readiness Decision** in the protocol.
 
 ## Brevity Rule
 
 - **Normal metrics, Go recommendation:** Keep interpretation to 2-3 sentences
 - **Threshold breach or Modify/Skip:** Expand with specific reasoning
 - **Rest day:** Brief — confirm recovery status, preview next session
+
+## Formatting Rule
+
+- **Durations and sleep:** Always use `_formatted` fields from JSON (e.g., `sleep_formatted`, `duration_formatted`, `total_training_formatted`). Never convert decimal `_hours` fields to display format — the formatted values are pre-calculated from raw seconds and avoid rounding errors.

@@ -10,7 +10,7 @@ Paste this entire file into any AI (Claude, ChatGPT, Grok, Gemini, etc.) and it 
 
 Section 11 connects their Intervals.icu training data to any AI coach. When setup is complete, they'll have:
 
-- A GitHub repo that auto-syncs their training data every 15 minutes
+- A data pipeline that keeps their training metrics fresh (via GitHub or a local timer)
 - Pre-computed coaching metrics (load, recovery, intensity distribution, alerts)
 - A personal athlete dossier the AI uses to personalize recommendations
 - Everything needed to start AI-assisted coaching sessions
@@ -21,9 +21,9 @@ Tell the user:
 
 > "Before we begin, here's what to expect:
 >
-> - **No command line required.** Everything is done through the GitHub website and your AI platform's interface.
-> - **You should be comfortable creating a GitHub repo and copying/pasting files.** That's the hardest part.
-> - **Expect 20–30 minutes the first time.** After that, everything runs automatically."
+> - **Agentic / local path:** Some command line work — your AI agent can handle most of it. You'll need to provide credentials and fill in your athlete profile.
+> - **Web chat / GitHub path:** No command line required. Everything is done through the GitHub website and your AI platform's interface. You should be comfortable creating a GitHub repo and copying/pasting files.
+> - **Expect 15–30 minutes the first time.** After that, everything runs automatically."
 
 ## How to guide them
 
@@ -37,17 +37,38 @@ Tell the user:
 
 ## Step 0: Choose your path
 
-Early in the conversation, ask:
+Two questions to ask early:
 
-> "Quick question before we start — do you care more about **ease of setup**, or **maximum privacy and a better long-term experience**?
+**Question 1 — What AI platform?**
+
+> "What AI are you planning to use as your coach?
 >
-> **Easy setup:** Public repo + web chat (like a ChatGPT or Claude project). About 20 minutes, works in your browser from any device, your AI fetches your data automatically. Your training data is anonymized by default, so a public repo is fine for most people.
+> **Web/phone AI chat** (Claude, ChatGPT, Gemini, Grok, Mistral) — works in your browser or phone app.
 >
-> **Privacy + better experience:** Private repo + agent platform (OpenClaw, Claude Cowork, Claude Code, etc.). More setup upfront, and typically only works on the device you set it up on — but the AI can read private repos, fetch data automatically, and do more over time."
+> **Agentic platform** (OpenClaw, Claude Code, Cowork, Codex CLI, Gemini CLI) — can execute code, push workouts to your calendar, and do more over time."
 
-**If they pick easy setup (or aren't sure):** Follow the **Golden Path** below. Public repo, web chat.
+**Question 2 — How do you want to sync your data?**
 
-**If they pick privacy + better experience:** Follow the Golden Path for Steps 1–7 (same for both), but set the repo to **private** in Step 3, then follow **Agent Path** in Step 8.
+> "Do you have a computer, server, or VPS that's regularly on?
+>
+> **Yes → Local sync:** A script on your machine keeps your data fresh on a timer. No GitHub needed. Cheaper, faster, more reliable.
+>
+> **No → GitHub sync:** GitHub Actions syncs your data every 15 minutes. No machine to maintain."
+
+Both sync methods work with both platform types. The four valid combinations:
+
+| Platform | Sync | How AI reads data |
+|----------|------|-------------------|
+| Web/phone chat | GitHub | GitHub connector or raw URL |
+| Web/phone chat | Local | Cloud connector (Google Drive, OneDrive — platform support varies) |
+| Agentic | Local | Filesystem (fastest) |
+| Agentic | GitHub | GitHub connector |
+
+**Routing:**
+
+- **GitHub sync:** Follow the **Golden Path** below (Steps 1–7), then Step 8 for platform connection.
+- **Local sync:** Follow Steps 1–2 (prerequisites + credentials), skip Steps 3–7, then follow **Local Path** in Step 8 which covers the full local setup including dossier, automated sync, and connecting the AI.
+- **Agentic + GitHub:** Follow the Golden Path for Steps 1–7, then follow the platform instructions in Step 8 (GitHub sub-path for each platform).
 
 ---
 
@@ -57,10 +78,11 @@ Early in the conversation, ask:
 
 Check that they have:
 
-1. **A GitHub account** — if not, direct them to https://github.com/signup
-2. **An Intervals.icu account** — if not, direct them to https://intervals.icu (it's free, connects via Strava/Garmin/etc.)
+1. **An Intervals.icu account** — if not, direct them to https://intervals.icu (it's free, connects via Strava/Garmin/etc.)
+   - **Important:** Their device (Garmin, Wahoo, etc.) should be connected **directly** to Intervals.icu, not only through Strava. Strava's API terms strip detailed data from activities — Intervals.icu shows everything in the UI, but the API returns empty fields. Direct connection in Intervals.icu Settings → Connections.
+2. **A GitHub account** (GitHub path only) — if not, direct them to https://github.com/signup. Not needed for the local path.
 
-Confirm both before continuing.
+Confirm before continuing.
 
 ### Step 2: Get Intervals.icu credentials
 
@@ -86,7 +108,8 @@ A "repository" (repo) is just a folder on GitHub that holds their files. A "work
    - Go to https://github.com/new
    - Name it something like `my-training-data` or `t1-data` (their choice)
    - **Easy setup path:** set to **Public** (the data is anonymized by default — no personal info is exposed)
-   - **Privacy path:** set to **Private**
+   - **Privacy-conscious:** set to **Private** — most web chat platforms (ChatGPT, Claude, Gemini, Mistral) now have GitHub connectors that can access private repos directly
+   - **Agent path:** set to **Private**
    - Check **"Add a README file"**
    - Click **Create repository**
 4. Copy these files from the Section 11 repo into their new repo:
@@ -127,7 +150,23 @@ Walk them through:
 
 **Important:** The secret names must match exactly — `ATHLETE_ID` and `INTERVALS_KEY`. These are what the workflow expects.
 
-Confirm both secrets are added before continuing.
+**Optional:** If their training week starts on a day other than Monday, add one more secret:
+
+| Name | Value |
+|------|-------|
+| `WEEK_START` | Training week start day: `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, or `sun` |
+
+If not set, defaults to `mon` (ISO week). This controls phase detection windows — ensures deload/build classification aligns with the athlete's actual training week structure.
+
+**Optional:** If they want HR zones used for aggregations in specific sports (e.g., runners with auto-generated watch power who prefer HR-based analysis):
+
+| Name | Value |
+|------|-------|
+| `ZONE_PREFERENCE` | Per-sport zone override, e.g. `run:hr,cycling:power` |
+
+Only override what's needed — unspecified sports default to power-preferred with HR fallback.
+
+Confirm both required secrets are added before continuing.
 
 ### Step 5: Enable workflow permissions
 
@@ -154,6 +193,7 @@ Walk them through:
 - The workflow run should show a green ✓
 - A `latest.json` file should now exist in the repo root with their training data
 - A `history.json` file should also appear
+- An `intervals.json` file may appear if the athlete has recent structured interval sessions
 
 If the run fails (red ✗), ask them to click into the failed run and share the error message so you can help troubleshoot.
 
@@ -228,9 +268,29 @@ This is where the two paths diverge.
 
 ---
 
-#### Golden Path: Web chat setup (public repo)
+#### Golden Path: Web chat setup
 
 Walk them through setting up a ChatGPT or Claude project. If they use a different platform (Grok, Mistral, Gemini), adapt these instructions — the concept is the same: create a project, paste instructions, upload files.
+
+**Before starting, check if their platform has a GitHub connector:**
+
+Most major AI platforms now have native GitHub connectors. If theirs does, they can use a **private repo** and skip the URL-based fetch entirely — the connector reads their data directly.
+
+**Note:** These connectors are for web chat platforms only and are currently read-only — they cannot trigger GitHub Actions workflows. For that, the user needs an [agentic platform](#agent-path-private-repo--agent-platform).
+
+| Platform | GitHub Connector | Can Trigger Actions | How to Connect |
+|----------|-----------------|---------------------|----------------|
+| ChatGPT | Varies by plan | No (Codex has write access) | Settings → Apps → GitHub |
+| Claude | All plans including Free | No (custom MCP possible†) | Settings → Integrations → GitHub, or "+" in Project Knowledge |
+| Gemini | Varies by account | No (Workspace extension has writes‡) | + → Import code, or Connected Apps |
+| Grok | Grok Business/Enterprise | No (read-only) | Settings → Connected Apps |
+| Mistral | All tiers incl. free | Not yet (writes supported, dispatch TBD) | Side panel → Intelligence → Connectors |
+| Perplexity | Pro, Max, and Enterprise | No | App Connectors |
+
+†Requires setting up a GitHub OAuth App or PAT with a custom MCP server — non-trivial.
+‡Separate Google Workspace extension; requires Google Integrations helper app. Not the same as import-code.
+
+If they have a connector available, walk them through connecting it and skip the fetch URLs in the instructions below. If not (or if they prefer simplicity), the URL-based approach works with a public repo.
 
 **1. Create a Project:**
 
@@ -241,25 +301,24 @@ Walk them through setting up a ChatGPT or Claude project. If they use a differen
 
 **2. Paste the coaching instructions:**
 
-Tell them to paste the following into their project's instruction/system prompt field. They must replace `[USERNAME]` and `[REPO]` with their actual GitHub username and repo name:
+Tell them to paste the following into their project's instruction/system prompt field. If using URL fetch, they must replace `[USERNAME]` and `[REPO]` with their actual GitHub username and repo name:
 
 ```
 # AI Coach Instructions
 
-You are my endurance cycling coach. Follow Section 11 protocol strictly.
+You are my endurance coach. Follow Section 11 protocol strictly.
 
-## MANDATORY FIRST ACTIONS (every training question):
-1. Note today's date
-2. Fetch JSON: https://raw.githubusercontent.com/[USERNAME]/[REPO]/main/latest.json (append ?date= with today's date to ensure fresh data)
-3. Fetch history: https://raw.githubusercontent.com/[USERNAME]/[REPO]/main/history.json (for longitudinal context)
-4. If activities don't match today's date, re-fetch before concluding no data exists
-5. Match activities to current date
-6. Then respond
+## DATA ACCESS:
+Read data using the first method that works:
+1. **Connected repo/filesystem** — If data files are available via connector (GitHub, Google Drive, OneDrive — platform support varies) or local filesystem, read latest.json, history.json, and intervals.json directly
+2. **URL fetch** — Fetch https://raw.githubusercontent.com/[USERNAME]/[REPO]/main/latest.json (append ?date= with today's date). Same for history.json
+3. If activities don't match today's date, re-fetch or re-read before concluding no data exists
+4. Load intervals.json when analysing a specific activity with `has_intervals: true` — use for interval compliance, pacing, cardiac drift, recovery quality
 
-Do NOT ask me for data — fetch it yourself.
+Do NOT ask me for data — read or fetch it yourself.
 
 ## SOURCE HIERARCHY:
-1. **JSON data** — Current metrics from latest.json (FETCH FIRST) + longitudinal data from history.json
+1. **JSON data** — Current metrics from latest.json (READ/FETCH FIRST) + longitudinal data from history.json + interval detail from intervals.json (on-demand)
 2. **Section 11 protocol** (attached) — Coaching rules, thresholds, metric hierarchy
 3. **Dossier** — Athlete profile, zones, goals
 4. **Report templates** — Fetch from https://github.com/CrankAddict/section-11/tree/main/examples/reports if not attached
@@ -273,7 +332,7 @@ No citations, no source markers, no parenthetical references. Raw data and analy
 1. Data timestamp
 2. One-line summary
 3. Session block(s) — one per activity, line-by-line:
-   Activity type & name, start time, duration (actual vs planned), distance, power (avg/NP), power zones (%), Grey Zone (Z3) %, Quality (Z4+) %, HR (avg/max), HR zones (%), cadence, decoupling (with label), Variability Index (with label), calories (kcal), carbs used (g), TSS (actual vs planned)
+   Activity type & name, start time, duration (actual vs planned), distance, power (avg/NP), power zones (%), Grey Zone (Z3) %, Quality (Z4+) %, HR (avg/max), HR zones (%), cadence, decoupling (with label), EF (when power + HR available), Variability Index (with label), calories (kcal), carbs used (g), TSS (actual vs planned)
 4. Weekly totals: Polarization, Durability (7d/28d + trend), TID 28d (+ drift), TSB, CTL, ATL, Ramp rate, ACWR, Hours, TSS
 5. Overall: Coach note (2–4 sentences — compliance, quality observations, load context, recovery note)
 
@@ -284,13 +343,13 @@ Omit fields only if data unavailable for that activity type.
 ## RULES:
 - Follow Section 11 validation checklist (Step 0: Data Source Fetch)
 - No virtual math on pre-computed metrics — use fetched values for CTL, ATL, TSB, ACWR, RI, zones, etc. Custom analysis from raw data is fine when pre-computed values don't cover the question
-- TSB −10 to −30 is typically normal — don't recommend recovery unless other triggers present
-- Metric hierarchy: Tier 1 (RI, HRV, RHR, Feel) → Tier 2 (Stress Tolerance, Load-Recovery Ratio, ACWR) → Tier 3 (diagnostics)
+- TSB −10 to −30 is typically normal — don’t recommend recovery unless other triggers present
+- Metric hierarchy: Tier 1 (RI, HRV, RHR, Sleep) → Tier 2 (Stress Tolerance, Load-Recovery Ratio, ACWR) → Tier 3 (diagnostics)
 - Brief when metrics are normal. Detailed when thresholds are breached or I ask "why"
 
-## DOCUMENTS ATTACHED:
-- DOSSIER.md — Profile, zones, goals
-- SECTION_11.md — AI coaching protocol (includes validation, metric hierarchy, report format guidelines)
+## DOCUMENTS:
+- SECTION_11.md — AI coaching protocol (attached, in connected repo, or fetch from CrankAddict/section-11)
+- DOSSIER.md — Profile, zones, goals (attached or in connected data repo)
 ```
 
 **3. Upload knowledge files:**
@@ -303,46 +362,132 @@ Tell them to upload these two files to their project's knowledge/files section:
 | `DOSSIER.md` | The dossier they created in Step 7 (from their data repo) |
 
 **Platform-specific notes:**
-- **ChatGPT Projects:** Upload to "Project Files." Browsing is enabled by default on Plus/Team.
+- **ChatGPT Projects:** Upload to "Project Files." If using the GitHub connector (Settings → Apps → GitHub), it can read your private repo directly — no need for public URLs.
 - **ChatGPT CustomGPT:** Upload to "Knowledge" under Configure. Enable "Web Browsing" in Capabilities.
-- **Claude Projects:** Upload to "Project Knowledge." Enable "Web search" in settings (required for JSON fetch).
-- **Grok:** Upload to "Sources" in Project configuration.
-- **Mistral (Le Chat):** Upload during project creation. Web access is available.
-- **Gemini Gems:** Paste Section 11 content into the instructions field and upload the dossier separately.
+- **Claude Projects:** Upload to "Project Knowledge." GitHub connector: click "+" in Project Knowledge → search/paste your repo URL → select files. Or enable "Web search" in settings for URL-based fetch.
+- **Grok:** Upload to "Sources" in Project configuration. GitHub connector available on Grok Business/Enterprise plans via Settings → Connected Apps.
+- **Mistral (Le Chat):** Upload during project creation. GitHub connector: side panel → Intelligence → Connectors → GitHub.
+- **Gemini Gems:** Paste Section 11 content into the instructions field and upload the dossier separately. GitHub connector: click + → Import code → paste repo URL. *(Note: Gemini capabilities vary across Google accounts and Workspace editions — it may not work for everyone. If Gemini can't access your repo, try downloading the section-11 repo as a zip and uploading it directly.)*
 
 ---
 
-#### Agent Path: Private repo + agent platform
+#### Local Path: Setup and Platform Connection
 
-If the user chose the privacy path, their repo is private and web-based AI chats can't fetch the JSON URLs. They need an agent platform that can connect to GitHub directly.
+If the user chose the local path, they'll run sync.py on their machine. The AI reads the data either directly (agentic platforms) or via a cloud connector (web/phone AI chats).
 
-Ask which platform they use or want to try, then walk them through:
+The GitHub vs Local question was already answered in Step 0. If they're here, they picked local. Skip directly to the local setup below.
+
+*(If they picked GitHub instead, they need Steps 3–6 from the Golden Path, then return here for platform connection.)*
+
+---
+
+**Local setup:**
+
+1. Create a data directory:
+   ```bash
+   mkdir ~/training-data && cd ~/training-data
+   ```
+
+2. Download and run the bootstrap:
+   ```bash
+   curl -O https://raw.githubusercontent.com/CrankAddict/section-11/main/examples/sync.py
+   python3 sync.py --setup
+   python3 sync.py --init
+   ```
+
+3. The `--setup` step asks for their Intervals.icu Athlete ID and API Key (from Step 2). They can skip GitHub token and repo — not needed for local.
+
+4. `--init` downloads the full Section 11 repository to `section11/`. After it finishes, all commands use `section11/examples/sync.py`.
+
+5. Copy and fill in the dossier:
+   ```bash
+   cp section11/DOSSIER_TEMPLATE.md DOSSIER.md
+   ```
+   Then guide them through filling it in — use the interview questions from Step 7 Option A below (the questions apply regardless of path).
+
+6. First sync:
+   ```bash
+   python3 section11/examples/sync.py --output latest.json
+   ```
+
+7. Set up automated refresh — walk them through `examples/json-local-sync/SETUP.md` for their OS (macOS launchd, Linux systemd, cron, or Windows Task Scheduler). The default interval is 1 minute.
+
+---
+
+**Platform connection — ask which platform they use:**
+
+**Agentic platforms** (AI runs on the same machine, reads files directly):
 
 **OpenClaw:**
-1. Install the GitHub skill: `npx skills add https://github.com/openclaw/openclaw --skill github`
-2. Authenticate: `gh auth login`
-3. Install the Section 11 skill from the repo's `openclaw/` folder
-4. OpenClaw can read private repos, fetch data automatically, and run heartbeat checks
-5. Point them to: https://github.com/CrankAddict/section-11/tree/main/openclaw
-
-**Claude Cowork:**
-1. Clone their data repo locally
-2. Grant Cowork access to that folder
-3. Alternatively, use the GitHub MCP connector in Cowork settings for direct repo access
-4. Upload or point to SECTION_11.md and their DOSSIER.md
+1. **Local:** OpenClaw's agent workspace (e.g., `~/clawd/`) may differ from the data directory (`~/training-data/`). If so, set the `Data Path` field in DOSSIER.md so the skill knows where to find data files. Or install the GitHub skill (GitHub path).
+2. Install the Section 11 skill from `section11/SKILL.md` (local) or from the repo root
+3. OpenClaw can run heartbeat checks — scheduled coaching observations without the user asking. HEARTBEAT.md goes in the agent workspace, not the data directory.
+4. Heartbeat template: https://github.com/CrankAddict/section-11/tree/main/examples/agentic/openclaw
 
 **Claude Code:**
-1. Install Claude GitHub App: https://github.com/apps/claude/installations/select_target
-2. Grant access to their private data repo
-3. Or clone locally and work with local files
-4. Upload SECTION_11.md and DOSSIER.md
+1. **Local:** `cd ~/training-data && claude` — full filesystem access, reads all files directly
+2. **GitHub:** Install Claude GitHub App at https://github.com/apps/claude/installations/select_target, grant access to private data repo
 
-**OpenAI Codex:**
-1. Connect GitHub at https://chatgpt.com/codex
-2. Authorize access to their data repo
-3. Codex clones the repo and can read `latest.json` and `history.json` directly
+**Claude Cowork:**
+1. **Local:** Grant Cowork access to `~/training-data/`
+2. **GitHub:** Use the GitHub MCP connector in Cowork settings for direct repo access
 
-Agent platforms fetch data automatically, work with private repos, and some (like OpenClaw) support autonomous heartbeat checks — scheduled coaching observations without the user asking.
+**ChatGPT Codex:**
+1. **Local (CLI):** Run from `~/training-data/` — Codex CLI has full filesystem access
+2. **GitHub:** Connect at https://chatgpt.com/codex, authorize access to data repo
+
+**Gemini CLI:**
+1. Install: `npm install -g @google/gemini-cli` (or `npx @google/gemini-cli`)
+2. **Local:** Run from `~/training-data/`
+3. **GitHub:** Clone the data repo locally
+
+**Web/phone AI chats** (AI runs elsewhere, reads via cloud connector):
+
+For web chat users on the local path, sync.py writes to a cloud-synced folder and the AI reads via its connector. Walk them through:
+
+1. Install Google Drive for Desktop (or OneDrive/Dropbox — whichever their AI platform has a connector for)
+2. Set the data directory inside the synced folder (e.g., `~/Google Drive/My Drive/training-data/`)
+3. The timer's `--output` points to this folder — same setup as above, just a different path
+4. Connect the AI platform's connector to the folder:
+   - **Gemini:** Native Google Drive access — just reference the folder
+   - **Perplexity:** Settings → Connectors → Google Drive (Pro plan required)
+   - **ChatGPT:** Settings → Apps → Google Drive (Workspace accounts only — not personal Gmail)
+   - **Claude:** Google Drive connector reads Google Docs only, not .json files. Use the GitHub connector instead (Settings → Integrations → GitHub)
+   - **Other platforms:** Check their connector/integration settings
+
+The AI coach now reads fresh data every time they open a chat. See `examples/json-local-sync/SETUP.md` for more details and alternative setups (VPS + rclone, NAS with cloud sync, etc.).
+
+**Optional: Enable calendar push**
+
+If the user wants their AI coach to write planned workouts directly to their Intervals.icu calendar:
+
+- **Local path:** push.py is already at `section11/examples/agentic/push.py` — uses the same `.sync_config.json` credentials. No extra setup.
+- **GitHub path:** Copy `examples/agentic/push.py` to data repo root, copy `examples/agentic/push-workout.yml` to `.github/workflows/push-workout.yml`. Uses the same `ATHLETE_ID` and `INTERVALS_KEY` secrets.
+
+See `examples/agentic/README.md` for commands, workout syntax, and template mappings.
+
+**Local project instructions:**
+
+For local setups, the AI coach reads files from the data directory instead of fetching URLs. Provide these instructions (from `examples/json-local-sync/SETUP.md`):
+
+```
+## DATA ACCESS:
+1. Read latest.json from the data directory
+2. Read history.json from the data directory
+3. Read intervals.json when analysing a specific activity with has_intervals: true
+4. Read protocol from section11/SECTION_11.md
+5. Read report templates from section11/examples/reports/
+6. Read workout templates from section11/examples/workout-library/WORKOUT_REFERENCE.md
+7. If data files appear stale, ask the athlete to run sync
+
+Do NOT fetch from URLs — all files are local.
+
+## DOCUMENTS:
+- section11/SECTION_11.md — follow this protocol
+- DOSSIER.md — athlete profile (data directory root)
+- section11/examples/reports/ — report templates
+- section11/examples/workout-library/WORKOUT_REFERENCE.md — session templates for planning
+```
 
 ---
 
@@ -353,17 +498,23 @@ Tell them to open their newly configured AI coach and type:
 > "How was today's workout?"
 
 **What a good response looks like:**
-- The AI fetches their data automatically (no asking for files)
+- The AI reads or fetches their data automatically (no asking for files)
 - Structured session summary with power, HR, zones, TSS, decoupling, etc.
 - Training load context (TSB, CTL, ATL, weekly totals)
 - Brief coach note
 - No web citations, no emojis, no unnecessary recovery warnings
 
-**If it doesn't work:**
+**If it doesn't work (web chat / GitHub path):**
 - "I don't have access to your data" → The AI can't reach the JSON URL. Check: is the repo public? Is web search/browsing enabled on the platform? Are the URLs correct in the instructions?
 - 404 or "Not Found" on the JSON URL → Double-check `[USERNAME]/[REPO]` in the instructions matches their actual GitHub username and repo name exactly. Also verify `latest.json` exists in the repo (Step 6 must have completed successfully).
 - Missing fields or weak analysis → SECTION_11.md may not be uploaded properly. Re-upload it.
 - Generic advice instead of data-driven → The AI isn't following the protocol. Check the instructions are pasted correctly.
+
+**If it doesn't work (local path):**
+- "I don't have access" or file not found → Check the agent can access the data directory (`~/training-data/` or wherever they created it). On platforms like OpenClaw where the agent workspace differs, verify the `Data Path` in DOSSIER.md is set correctly. Verify `latest.json` exists: `ls -la ~/training-data/latest.json`
+- Data appears stale → Timer may not be running. Check: `launchctl list | grep section11` (macOS) or `systemctl --user status section11-sync.timer` (Linux). Check `sync.log` for errors.
+- Agent can't find SECTION_11.md → Verify `section11/` directory exists in the data directory and contains the protocol files.
+- "Missing credentials" in sync.log → `.sync_config.json` must be in the data directory root, not inside `section11/`. Re-run `--setup` from the data directory root.
 
 If the test looks good, they're done. They have an AI endurance coach.
 

@@ -4,32 +4,59 @@ Intervals.icu → GitHub/Local JSON Export
 Exports training data for LLM access.
 Supports both automated GitHub sync and manual local export.
 
-Version 3.6.2 - Calendar Context Extensions
-  - Add days_from_now and day_of_week fields to activities and planned workouts
-  - Eliminates AI date calculation errors by providing pre-computed temporal context
-  - _enrich_date_context() helper calculates relative days and weekday names
+Version 3.86 - Primary sport TSS filtering for phase detection: planned_tss_delta and next_week_tss_delta
+  now filter to primary sport (numerator from planned workouts, denominator from weekly history).
+  Prevents cross-training TSS (e.g. SkiErg ~9 TSS/session) from contaminating phase classification.
+  - _format_events: sport_type passthrough from raw event type field
+  - _build_weekly_tier: primary_sport + primary_sport_tss + sport_tss_breakdown on each weekly_180d row
+  - _phase_stream1_features: primary_tss_values extracted from weekly rows
+  - _phase_stream2_features: numerator and denominator filtered to primary sport, all-sport fallback
+  - _detect_phase_v2: primary_sport threaded from derived_metrics
+  Falls back to all-sport when primary sport data unavailable. Single-sport athletes unaffected.
 
-Version 3.6.1 - Hard Day HR Zone Fallback
-  - Hard day counter falls back to icu_hr_zone_times when power zones unavailable
-  - Conservative 2-rung HR ladder (Z4+ >= 10min, Z5+ >= 5min) per Seiler 3-zone model
-  - Shared _get_activity_zones() and _classify_hard_day() helpers across all call sites
-  - Daily tier rows include intensity_basis field (power/hr/mixed/null)
-  - is_hard_day returns null when no zone data exists (not false)
-  - _aggregate_zones() refactored to use shared helper
+Version 3.85 - Wellness field expansion: all Intervals.icu wellness fields now passed through to latest.json
+  and history.json. Adds subjective state (stress, mood, motivation, injury, hydration), vitals (spO2,
+  blood glucose, blood pressure, Baevsky SI, lactate, respiration), body composition (body fat, abdomen),
+  nutrition (kcal, carbs, protein, fat), lifestyle (steps, hydration volume), and cycle tracking
+  (menstrual phase + predicted). Bug fix: hrvSdnn → hrvSDNN case mismatch (was silently returning null).
+  wellness_field_scales legend added to READ_THIS_FIRST (1-4 scale direction + per-field labels).
+  Fields null when not reported — zero cost, no new decision logic.
 
-Version 3.6.0 - Efficiency Factor (EF) tracking
-  - Pull icu_efficiency_factor (NP/Avg HR, Coggan) per activity from Intervals.icu API
-  - Aggregate EF 7d/28d with trend (improving/stable/declining)
-  - Qualifying filters: cycling, VI <= 1.05, >= 20min, power+HR
-  - Added to capability namespace alongside durability and TID comparison
+Version 3.84 - Activity description passthrough, chat_notes fix (completed activities),
+  phase_week off-by-one fix.
 
-Version 3.5.1 - HRV outlier filter (_is_valid_hrv(), 10-250ms range), applied to baselines/RI/summaries
-Version 3.5.0 - Race calendar (90-day, RACE_A/B/C), race-week protocol (D-7 to D-0), TSB projection
+Version 3.83 - Per-sport zone preference: ZONE_PREFERENCE config overrides power/HR priority per sport family.
+  Format: "run:hr,cycling:power". Config cascade: .sync_config.json → env var → default (power preferred).
+  _get_activity_zones() converted from @staticmethod to instance method with sport_family param.
+  _aggregate_seiler_zones() refactored to use _get_activity_zones() (eliminated duplicated zone extraction).
+  zone_basis field added to zone_distribution_7d and all seiler_tid blocks. zone_preference in READ_THIS_FIRST.
+  Input validation: rejects non-power/hr values with warning. --setup wizard updated.
+  Phase detection: HR_ONLY_MAJORITY suppressed when zone_preference includes HR (intentional, not missing data).
 
-Version 3.4.1 - KeyError fix, defensive .get(), anonymization improvements
-Version 3.4.0 - Aggregate durability (7d/28d decoupling), dual-timeframe TID, capability namespace
-Version 3.3.4 - Seiler TID classification, Treff PI, multi-sport TID, 7→3 zone mapping
-Version 3.3.0 - Graduated alerts, history.json, notifications, smart fitness metrics, ACWR/monotony/strain
+Version 3.82 - Interval-level data: intervals.json with per-segment metrics for structured sessions.
+  Pre-filter via interval_summary + sport family whitelist (cycling, run, ski, rowing, swim).
+  Incremental cache (72h scan, 7-day retention, first-run backfill). has_intervals flag in latest.json.
+
+Version 3.81 - Feel removed from readiness decision signal chain.
+  Feel is a retrospective activity-level field, not a morning readiness marker.
+  A feel value from days ago should not drive today's go/modify/skip recommendation.
+  - Removed _get_latest_feel() method
+  - Removed feel signal from readiness_decision.signals (7 → 6 signals: HRV, RHR, Sleep, ACWR, RI, TSB)
+  - Removed feel-only case from _build_modification()
+  - Feel remains in: activity data, weekly history tier, all report templates (retrospective/trend use)
+
+Version 3.80 - --update orphan cleanup: detects and removes local files no longer in the upstream
+  manifest (e.g. files moved or deleted in a repo restructure), and standalone empty directories.
+  Runs after the pull step, shows orphaned items with [removed from repo] / [empty directory] tags,
+  prompts for confirmation. Empty parent directories cleaned up automatically.
+  Skips manifest.json, .tmp files, and hidden files/directories.
+
+Version 3.79 - Feel/RPE fix: feel removed from daily rows, RPE added to weekly tier, report templates updated
+Version 3.78 - Week alignment fix, log rotation, update checker cleanup
+Versions 3.7–3.77 — Phase detection v2, readiness decision, HRRc, week alignment, local sync pipeline, hash manifest
+Versions 3.6.0–3.6.5 — EF tracking, HR zone fallback, workout summary parser, real IDs, coach notes
+Versions 3.5.0–3.5.1 — Race calendar, HRV outlier filter
+Versions 3.3.0–3.4.1 — Durability, TID, alerts, history.json, smart fitness metrics
 """
 
 import requests
@@ -41,6 +68,11 @@ from typing import Dict, List, Optional, Tuple
 import base64
 import math
 import statistics
+import hashlib
+import zipfile
+import tempfile
+import shutil
+import atexit
 from collections import defaultdict
 from pathlib import Path
 
@@ -54,7 +86,15 @@ class IntervalsSync:
     HISTORY_FILE = "history.json"
     UPSTREAM_REPO = "CrankAddict/section-11"
     CHANGELOG_FILE = "changelog.json"
-    VERSION = "3.6.2"
+    VERSION = "3.86"
+    INTERVALS_FILE = "intervals.json"
+
+    # Sport families eligible for interval-level data extraction.
+    # Only structured sessions in these families are worth fetching
+    # per-interval detail for. Walk, strength, yoga, other excluded.
+    INTERVAL_SPORT_FAMILIES = {"cycling", "run", "ski", "rowing", "swim"}
+    INTERVAL_SCAN_HOURS = 72    # Only scan recent activities for new intervals
+    INTERVAL_RETENTION_DAYS = 7  # Keep cached intervals for 7 days
 
     # Sport family mapping for per-sport monotony calculation
     # Multi-sport athletes get inflated total monotony when cross-training
@@ -84,14 +124,22 @@ class IntervalsSync:
     OUTDOOR_TYPES = {"Ride", "MountainBikeRide", "GravelRide", "EBikeRide",
                      "Run", "TrailRun", "NordicSki", "Walk", "Hike"}
     
+    # Training week start day (Python weekday: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6)
+    # Default Monday (ISO). Override via .sync_config.json, WEEK_START env var, or --week-start CLI arg.
+    WEEK_START_DAY = 0
+    
     def __init__(self, athlete_id: str, intervals_api_key: str, github_token: str = None, 
-                 github_repo: str = None, debug: bool = False):
+                 github_repo: str = None, debug: bool = False, week_start_day: int = None,
+                 zone_preference: dict = None):
         self.athlete_id = athlete_id
         self.intervals_auth = base64.b64encode(f"API_KEY:{intervals_api_key}".encode()).decode()
         self.github_token = github_token
         self.github_repo = github_repo
         self.debug = debug
         self.script_dir = Path(__file__).parent
+        self.data_dir = Path.cwd()  # Data files (history.json, ftp_history.json) write to caller's working directory
+        self.week_start_day = week_start_day if week_start_day is not None else self.WEEK_START_DAY
+        self.zone_preference = zone_preference or {}  # {"run": "hr", "cycling": "power", ...}
     
     def _intervals_get(self, endpoint: str, params: Dict = None) -> Dict:
         """Fetch from Intervals.icu API"""
@@ -107,24 +155,156 @@ class IntervalsSync:
         response.raise_for_status()
         return response.json()
 
-    def _enrich_date_context(self, date_str: str) -> Tuple[Optional[int], Optional[str]]:
-        """Calculate days_from_now and day_of_week for a date string.
-
-        Args:
-            date_str: Date in "YYYY-MM-DDTHH:MM:SS" format
-
-        Returns:
-            (days_from_now, day_of_week) tuple
-        """
+    def _get_activity_messages(self, activity_id: str) -> List[str]:
+        """Fetch messages/notes for a completed activity. Returns list of text strings."""
+        url = f"{self.INTERVALS_BASE_URL}/activity/{activity_id}/messages"
+        headers = {
+            "Authorization": f"Basic {self.intervals_auth}",
+            "Accept": "application/json"
+        }
         try:
-            target = datetime.strptime(date_str[:10], "%Y-%m-%d")
-            today = datetime.now()
-            days_from_now = (target.date() - today.date()).days
-            day_of_week = target.strftime("%A")
-            return days_from_now, day_of_week
-        except (ValueError, AttributeError, TypeError):
-            return None, None
-
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            messages = response.json()
+            if isinstance(messages, list):
+                return [m.get("content", m.get("text", "")) for m in messages if (m.get("content") or m.get("text", "")).strip()]
+            return []
+        except Exception:
+            return []
+    
+    def _fetch_activity_intervals(self, activity_id: str) -> List[Dict]:
+        """Fetch interval segments for a single activity. Returns icu_intervals list or empty list on failure."""
+        url = f"{self.INTERVALS_BASE_URL}/activity/{activity_id}"
+        headers = {
+            "Authorization": f"Basic {self.intervals_auth}",
+            "Accept": "application/json"
+        }
+        try:
+            response = requests.get(url, headers=headers, params={"intervals": "true"})
+            response.raise_for_status()
+            data = response.json()
+            intervals = data.get("icu_intervals", [])
+            if isinstance(intervals, list):
+                return intervals
+            return []
+        except Exception as e:
+            if self.debug:
+                print(f"    ⚠️  Could not fetch intervals for {activity_id}: {e}")
+            return []
+    
+    def _generate_intervals(self, activities: List[Dict]) -> set:
+        """
+        Generate intervals.json with incremental caching.
+        
+        First run (no cache): scans full retention window (7 days) to backfill.
+        Subsequent runs: scans recent activities (72h) for new sessions only.
+        Fetches per-interval data for new qualifying activities, merges
+        with cached data, and purges entries older than 7 days.
+        
+        Returns set of activity IDs that have interval data (for has_intervals flag).
+        """
+        now = datetime.now()
+        retention_cutoff = (now - timedelta(days=self.INTERVAL_RETENTION_DAYS)).strftime("%Y-%m-%d")
+        
+        # Load existing cache
+        intervals_path = self.data_dir / self.INTERVALS_FILE
+        cached = {"activities": []}
+        first_run = not intervals_path.exists()
+        if not first_run:
+            try:
+                with open(intervals_path, 'r') as f:
+                    cached = json.load(f)
+            except Exception as e:
+                if self.debug:
+                    print(f"    ⚠️  Could not read intervals.json: {e}")
+                cached = {"activities": []}
+                first_run = True
+        
+        # First run: backfill full retention window (7 days). Subsequent: scan 72h only.
+        if first_run:
+            scan_cutoff = retention_cutoff
+            print("    First run — scanning 7 days for interval data...")
+        else:
+            scan_cutoff = (now - timedelta(hours=self.INTERVAL_SCAN_HOURS)).strftime("%Y-%m-%d")
+        
+        cached_ids = {a["activity_id"] for a in cached.get("activities", [])}
+        
+        # Filter activities to scan window + sport family whitelist + interval_summary non-null
+        candidates = []
+        for act in activities:
+            date_str = act.get("start_date_local", "")[:10]
+            if date_str < scan_cutoff:
+                continue
+            act_type = act.get("type", "")
+            family = self.SPORT_FAMILIES.get(act_type)
+            if family not in self.INTERVAL_SPORT_FAMILIES:
+                continue
+            if not act.get("interval_summary"):
+                continue
+            act_id = act.get("id")
+            if act_id in cached_ids:
+                continue
+            candidates.append(act)
+        
+        # Fetch intervals for new qualifying activities
+        new_entries = []
+        for act in candidates:
+            act_id = act.get("id")
+            print(f"    Fetching intervals for {act.get('name', act_id)}...")
+            raw_intervals = self._fetch_activity_intervals(act_id)
+            if not raw_intervals:
+                continue
+            
+            # Format interval segments
+            segments = []
+            for iv in raw_intervals:
+                segment = {
+                    "type": iv.get("type"),
+                    "label": iv.get("group_id"),
+                    "duration_secs": iv.get("elapsed_time"),
+                    "avg_power": iv.get("average_watts"),
+                    "max_power": iv.get("max_watts"),
+                    "avg_hr": iv.get("average_heartrate"),
+                    "max_hr": iv.get("max_heartrate"),
+                    "avg_cadence": iv.get("average_cadence"),
+                    "zone": iv.get("zone"),
+                    "w_bal": iv.get("w_bal"),
+                    "training_load": iv.get("training_load"),
+                    "decoupling": iv.get("decoupling"),
+                }
+                # Strip None values to keep output lean
+                segment = {k: v for k, v in segment.items() if v is not None}
+                segments.append(segment)
+            
+            if segments:
+                new_entries.append({
+                    "activity_id": act_id,
+                    "date": act.get("start_date_local", "")[:10],
+                    "type": act.get("type", "Unknown"),
+                    "name": act.get("name", ""),
+                    "interval_summary": act.get("interval_summary"),
+                    "intervals": segments
+                })
+        
+        if new_entries:
+            print(f"    ✅ Fetched intervals for {len(new_entries)} new activit{'y' if len(new_entries) == 1 else 'ies'}")
+        
+        # Merge: keep cached entries within retention window + new entries
+        retained = [a for a in cached.get("activities", []) if a.get("date", "") >= retention_cutoff]
+        all_entries = retained + new_entries
+        
+        # Build intervals.json
+        self._intervals_data = {
+            "generated_at": now.isoformat(),
+            "version": self.VERSION,
+            "scan_hours": self.INTERVAL_SCAN_HOURS,
+            "retention_days": self.INTERVAL_RETENTION_DAYS,
+            "activities": all_entries
+        }
+        
+        # Return all activity IDs that have interval data
+        return {a["activity_id"] for a in all_entries}
+    
     def _fetch_today_wellness(self) -> Dict:
         """
         Fetch today's wellness data which contains:
@@ -189,7 +369,7 @@ class IntervalsSync:
             "outdoor": {"2026-01-01": 280, "2026-02-01": 287}
         }
         """
-        ftp_history_path = self.script_dir / self.FTP_HISTORY_FILE
+        ftp_history_path = self.data_dir / self.FTP_HISTORY_FILE
         
         if ftp_history_path.exists():
             try:
@@ -253,7 +433,7 @@ class IntervalsSync:
                     print(f"  Outdoor FTP recorded: {current_ftp_outdoor}")
         
         # Save to file
-        ftp_history_path = self.script_dir / self.FTP_HISTORY_FILE
+        ftp_history_path = self.data_dir / self.FTP_HISTORY_FILE
         try:
             with open(ftp_history_path, 'w') as f:
                 json.dump(history, f, indent=2, sort_keys=True)
@@ -390,7 +570,7 @@ class IntervalsSync:
         print("Fetching planned workouts (past + future for Consistency Index + race calendar)...")
         oldest_events = (datetime.now() - timedelta(days=days_back - 1)).strftime("%Y-%m-%d")
         newest_ahead = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d")
-        events = self._intervals_get("events", {"oldest": oldest_events, "newest": newest_ahead})
+        events = self._intervals_get("events", {"oldest": oldest_events, "newest": newest_ahead, "resolve": "true"})
         
         # Split events into past (for consistency), near future (for planned workouts display), and all future (for race calendar)
         past_events = [e for e in events if e.get("start_date_local", "")[:10] <= today]
@@ -436,6 +616,20 @@ class IntervalsSync:
             current_ftp_outdoor, ftp_history.get("outdoor", {}), "outdoor"
         )
         
+        # Build race calendar (v3.5.0) — moved before derived metrics for phase detection
+        print("Building race calendar...")
+        race_calendar = self._build_race_calendar(
+            future_events=future_events,
+            current_ctl=ctl,
+            current_atl=atl,
+            current_tsb=tsb,
+            activities_7d=activities_display,
+            today=today
+        )
+        
+        # Format planned workouts — used by both phase detection and output
+        formatted_planned_workouts = self._format_events(near_future_events, anonymize, today=today)
+        
         # Calculate derived metrics for Section 11 compliance
         print("Calculating derived metrics...")
         derived_metrics = self._calculate_derived_metrics(
@@ -451,7 +645,9 @@ class IntervalsSync:
             power_model=power_model,
             benchmark_indoor=(benchmark_index_indoor, ftp_8_weeks_ago_indoor, current_ftp_indoor),
             benchmark_outdoor=(benchmark_index_outdoor, ftp_8_weeks_ago_outdoor, current_ftp_outdoor),
-            vo2max=vo2max
+            vo2max=vo2max,
+            formatted_planned_workouts=formatted_planned_workouts,
+            race_calendar=race_calendar
         )
         
         # Generate alerts array (v3.3.0)
@@ -469,17 +665,6 @@ class IntervalsSync:
             print(f"  ⚠️  {len(alerts)} alerts: {alarm_count} alarm, {warning_count} warning")
         else:
             print("  ✅ No alerts — green light")
-        
-        # Build race calendar (v3.5.0)
-        print("Building race calendar...")
-        race_calendar = self._build_race_calendar(
-            future_events=future_events,
-            current_ctl=ctl,
-            current_atl=atl,
-            current_tsb=tsb,
-            activities_7d=activities_display,
-            today=today
-        )
         
         # Add race-specific alerts
         race_alerts = self._generate_race_alerts(race_calendar)
@@ -499,17 +684,56 @@ class IntervalsSync:
         else:
             print("  🏁 No races in 90-day window")
         
+        # Compute readiness decision (v3.72)
+        print("Computing readiness decision...")
+        readiness_decision = self._compute_readiness_decision(
+            derived_metrics=derived_metrics,
+            alerts=alerts,
+            latest_wellness=latest_wellness,
+            activities=activities_extended,
+            race_calendar=race_calendar,
+            current_tsb=tsb
+        )
+        rd_rec = readiness_decision["recommendation"].upper()
+        rd_pri = readiness_decision["priority"]
+        print(f"  {'🟢' if rd_rec == 'GO' else '🟡' if rd_rec == 'MODIFY' else '🔴'} Readiness: {rd_rec} (P{rd_pri})")
+        
         # History confidence (v3.3.0)
         history_info = self._get_history_confidence()
+        
+        # Generate interval-level data (v3.82)
+        # Uses the already-fetched activity list — no extra listing API calls.
+        # Pre-filters by sport family whitelist + interval_summary non-null.
+        # Incremental: only fetches intervals for new qualifying activities.
+        print("Checking for interval data...")
+        interval_activity_ids = self._generate_intervals(activities_display)
+        if interval_activity_ids:
+            print(f"  📊 {len(interval_activity_ids)} activit{'y' if len(interval_activity_ids) == 1 else 'ies'} with interval data")
         
         data = {
             "READ_THIS_FIRST": {
                 "instruction_for_ai": "DO NOT calculate totals from individual activities. Use the pre-calculated values in 'summary', 'weekly_summary', and 'derived_metrics' sections below. These are already computed accurately from the API data.",
+                "display_formatting": "For durations and sleep, always display the '_formatted' fields (e.g., sleep_formatted, duration_formatted, total_training_formatted) instead of converting decimal '_hours' values. The formatted fields are pre-calculated from raw seconds and avoid rounding errors.",
                 "data_period": f"Last {days_back} days (including today)",
                 "extended_data_note": f"ACWR and baselines calculated from {days_for_acwr} days of data",
-                "capability_metrics_note": "The 'capability' block in derived_metrics contains durability trend (aggregate decoupling 7d/28d), efficiency factor trend (aggregate EF 7d/28d), and TID comparison (7d vs 28d distribution drift). These measure HOW the athlete expresses fitness, not just load. Use these for coaching context alongside traditional load metrics. Durability and EF trend direction matters more than absolute values.",
+                "capability_metrics_note": "The 'capability' block in derived_metrics contains durability trend (aggregate decoupling 7d/28d), efficiency factor trend (aggregate EF 7d/28d), HRRc trend (heart rate recovery 7d/28d), and TID comparison (7d vs 28d distribution drift). These measure HOW the athlete expresses fitness, not just load. Use these for coaching context alongside traditional load metrics. Durability and EF trend direction matters more than absolute values. HRRc is display only — higher = better parasympathetic recovery.",
+                "readiness_decision_note": "The 'readiness_decision' block contains a pre-computed go/modify/skip recommendation with priority level (P0=safety, P1=overload, P2=fatigue, P3=green), individual signal statuses, phase-adjusted thresholds, and structured modification guidance. Use this as the baseline for pre-workout recommendations. Override with explanation in the coach note if the AI's contextual judgment disagrees.",
+                "zone_preference": self.zone_preference if self.zone_preference else "default (power preferred, HR fallback)",
+                "wellness_field_scales": {
+                    "note": "All categorical wellness fields use a 1-4 positional scale where 1 = best state, 4 = worst state. Labels differ per field but direction is consistent. Fields are null when not reported.",
+                    "sleep_quality": {"1": "GREAT", "2": "OK", "3": "POOR", "4": "WORST"},
+                    "fatigue": {"1": "None", "2": "Some", "3": "High", "4": "Extreme", "ui_note": "Labeled 'Pre training' in Intervals.icu"},
+                    "soreness": {"1": "None", "2": "Some", "3": "High", "4": "Extreme", "ui_note": "Labeled 'Pre training' in Intervals.icu"},
+                    "stress": {"1": "LOW", "2": "AVG", "3": "HIGH", "4": "EXTREME"},
+                    "mood": {"1": "GREAT", "2": "GOOD", "3": "OK", "4": "GRUMPY"},
+                    "motivation": {"1": "EXTREME", "2": "HIGH", "3": "AVG", "4": "LOW"},
+                    "injury": {"1": "NONE", "2": "NIGGLE", "3": "POOR", "4": "INJURED"},
+                    "hydration": {"1": "GOOD", "2": "OK", "3": "POOR", "4": "BAD"},
+                    "menstrual": "menstrual_phase and menstrual_phase_predicted are not on the 1-4 scale. Values: PERIOD, FOLLICULAR, OVULATION, LUTEAL, etc."
+                },
                 "quick_stats": {
                     "total_training_hours": round(sum(act.get("moving_time", 0) for act in activities_display) / 3600, 2),
+                    "total_training_formatted": self._format_duration(int(sum(act.get("moving_time", 0) for act in activities_display)) // 60 * 60),
                     "total_activities": len(activities_display),
                     "total_tss": round(sum(act.get("icu_training_load", 0) for act in activities_display if act.get("icu_training_load")), 0)
                 }
@@ -522,6 +746,7 @@ class IntervalsSync:
                 "version": self.VERSION
             },
             "alerts": alerts,
+            "readiness_decision": readiness_decision,
             "history": history_info,
             "summary": self._compute_activity_summary(activities_display, days_back),
             "current_status": {
@@ -545,13 +770,47 @@ class IntervalsSync:
                     "resting_hr": latest_wellness.get("restingHR") or athlete.get("icu_resting_hr"),
                     "hrv": latest_wellness.get("hrv"),
                     "sleep_quality": latest_wellness.get("sleepQuality"),
-                    "sleep_hours": round(latest_wellness.get("sleepSecs", 0) / 3600, 2) if latest_wellness.get("sleepSecs") else None
+                    "sleep_hours": round(latest_wellness.get("sleepSecs", 0) / 3600, 2) if latest_wellness.get("sleepSecs") else None,
+                    "sleep_formatted": self._format_duration(int(latest_wellness.get("sleepSecs", 0)) // 60 * 60) if latest_wellness.get("sleepSecs") else None,
+                    "sleep_score": latest_wellness.get("sleepScore"),
+                    # Subjective state (categorical 1-4, see wellness_field_scales in READ_THIS_FIRST)
+                    "fatigue": latest_wellness.get("fatigue"),
+                    "soreness": latest_wellness.get("soreness"),
+                    "stress": latest_wellness.get("stress"),
+                    "mood": latest_wellness.get("mood"),
+                    "motivation": latest_wellness.get("motivation"),
+                    "injury": latest_wellness.get("injury"),
+                    "hydration": latest_wellness.get("hydration"),
+                    # Vitals
+                    "spO2": latest_wellness.get("spO2"),
+                    "blood_glucose": latest_wellness.get("bloodGlucose"),
+                    "systolic": latest_wellness.get("systolic"),
+                    "diastolic": latest_wellness.get("diastolic"),
+                    "baevsky_si": latest_wellness.get("baevskySI"),
+                    "lactate": latest_wellness.get("lactate"),
+                    "respiration": latest_wellness.get("respiration"),
+                    # Body composition
+                    "body_fat_pct": latest_wellness.get("bodyFat"),
+                    "abdomen_cm": latest_wellness.get("abdomen"),
+                    # Lifestyle / nutrition
+                    "steps": latest_wellness.get("steps"),
+                    "hydration_volume_l": latest_wellness.get("hydrationVolume"),
+                    "kcal_consumed": latest_wellness.get("kcalConsumed"),
+                    "carbohydrates_g": latest_wellness.get("carbohydrates"),
+                    "protein_g": latest_wellness.get("protein"),
+                    "fat_g": latest_wellness.get("fatTotal"),
+                    # Cycle
+                    "menstrual_phase": latest_wellness.get("menstrualPhase"),
+                    "menstrual_phase_predicted": latest_wellness.get("menstrualPhasePredicted"),
+                    # Platform
+                    "readiness": latest_wellness.get("readiness")
                 }
             },
             "derived_metrics": derived_metrics,
-            "recent_activities": self._format_activities(activities_display, anonymize),
+            "recent_activities": self._format_activities(activities_display, anonymize, interval_activity_ids),
             "wellness_data": self._format_wellness(wellness),
-            "planned_workouts": self._format_events(near_future_events, anonymize),
+            "planned_workouts": formatted_planned_workouts,
+            "workout_summary_stats": getattr(self, '_summary_stats', {}),
             "weekly_summary": self._compute_weekly_summary(activities_display, wellness),
             "race_calendar": race_calendar
         }
@@ -599,7 +858,9 @@ class IntervalsSync:
                                     power_model: Dict,
                                     benchmark_indoor: Tuple[Optional[float], Optional[int], Optional[int]],
                                     benchmark_outdoor: Tuple[Optional[float], Optional[int], Optional[int]],
-                                    vo2max: float) -> Dict:
+                                    vo2max: float,
+                                    formatted_planned_workouts: List[Dict] = None,
+                                    race_calendar: Dict = None) -> Dict:
         """
         Calculate Section 11 derived metrics.
         
@@ -611,6 +872,12 @@ class IntervalsSync:
             benchmark_indoor: (benchmark_index, ftp_8_weeks_ago, current_ftp) for indoor
             benchmark_outdoor: (benchmark_index, ftp_8_weeks_ago, current_ftp) for outdoor
         """
+        
+        # Defaults for phase detection inputs
+        if formatted_planned_workouts is None:
+            formatted_planned_workouts = []
+        if race_calendar is None:
+            race_calendar = {"next_race": None, "all_races": [], "taper_alert": {"active": False}, "race_week": {"active": False}}
         
         # Unpack benchmark tuples
         benchmark_index_indoor, ftp_8_weeks_ago_indoor, current_ftp_indoor = benchmark_indoor
@@ -733,6 +1000,7 @@ class IntervalsSync:
         z2_time = zone_totals["z2_time"]
         z3_time = zone_totals["z3_time"]
         z4_plus_time = zone_totals["z4_plus_time"]
+        zone_basis_7d = zone_totals["zone_basis"]
         
         # === GREY ZONE PERCENTAGE (Z3 - to be minimized in polarized training) ===
         # Reference: Seiler - "too much pain for too little gain"
@@ -791,6 +1059,7 @@ class IntervalsSync:
         # === DURABILITY TREND (aggregate decoupling) ===
         durability = self._calculate_durability(activities_7d, activities_28d)
         efficiency_factor = self._calculate_efficiency_factor(activities_7d, activities_28d)
+        hrrc_trend = self._calculate_hrrc_trend(activities_7d, activities_28d)
 
         # === CONSISTENCY INDEX ===
         consistency_index, consistency_details = self._calculate_consistency_index(
@@ -812,7 +1081,8 @@ class IntervalsSync:
         for date_str, day_acts in activities_by_date_7d.items():
             day_zones_by_basis = {}
             for a in day_acts:
-                zones, basis = self._get_activity_zones(a)
+                sf = self.SPORT_FAMILIES.get(a.get("type", ""), None)
+                zones, basis = self._get_activity_zones(a, sport_family=sf)
                 if zones and basis:
                     if basis not in day_zones_by_basis:
                         day_zones_by_basis[basis] = {}
@@ -823,17 +1093,27 @@ class IntervalsSync:
             if is_hard:
                 hard_days_this_week += 1
         
-        # === PHASE DETECTION ===
-        phase_detected, phase_triggers = self._detect_phase(
-            acwr=acwr,
-            ri=ri,
-            quality_intensity_pct=quality_intensity_percentage,
-            hard_days_per_week=hard_days_this_week,
-            strain=strain,
-            monotony=monotony,
-            tsb=current_tsb,
-            ctl=current_ctl
+        # === PHASE DETECTION v2 (dual-stream) ===
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        # Load weekly_180d lookback from history.json
+        weekly_rows = self._load_weekly_rows_for_phase()
+        previous_phase = None
+        if weekly_rows:
+            previous_phase = weekly_rows[-1].get("phase_detected")
+        
+        phase_result = self._detect_phase_v2(
+            weekly_rows=weekly_rows,
+            planned_workouts=formatted_planned_workouts,
+            race_calendar=race_calendar,
+            previous_phase=previous_phase,
+            today=today,
+            primary_sport=primary_sport
         )
+        phase_detected = phase_result["phase"]
+        
+        # Legacy compatibility: extract trigger-style info for existing consumers
+        phase_triggers = phase_result["reason_codes"]
         
         # === SEASONAL CONTEXT ===
         seasonal_context = self._determine_seasonal_context()
@@ -874,7 +1154,8 @@ class IntervalsSync:
                 "z2_hours": round(z2_time / 3600, 2),
                 "z3_hours": round(z3_time / 3600, 2),
                 "z4_plus_hours": round(z4_plus_time / 3600, 2),
-                "total_hours": round(total_zone_time / 3600, 2)
+                "total_hours": round(total_zone_time / 3600, 2),
+                "zone_basis": zone_basis_7d
             },
             "grey_zone_percentage": grey_zone_percentage,
             "grey_zone_note": "Gray Zone % (Z3/tempo) - minimize in polarized training",
@@ -895,6 +1176,7 @@ class IntervalsSync:
             "capability": {
                 "durability": durability,
                 "efficiency_factor": efficiency_factor,
+                "hrrc": hrrc_trend,
                 "tid_comparison": tid_comparison,
             },
             
@@ -903,8 +1185,9 @@ class IntervalsSync:
             "consistency_details": consistency_details,
             
             # Phase & Context
-            "phase_detected": phase_detected,
-            "phase_triggers": phase_triggers,
+            "phase_detection": phase_result,
+            "phase_detected": phase_detected,  # top-level shortcut for backward compat
+            "phase_triggers": phase_triggers,   # backward compat
             "seasonal_context": seasonal_context,
             
             # Benchmark & FTP Progression (Indoor)
@@ -1126,8 +1409,7 @@ class IntervalsSync:
     # HR and power zones are NOT interchangeable — different widths, lag characteristics,
     # and physiological meaning. They are kept in separate accumulators.
 
-    @staticmethod
-    def _get_activity_zones(activity: Dict) -> tuple:
+    def _get_activity_zones(self, activity: Dict, sport_family: str = None) -> tuple:
         """
         Extract zone times from a single activity.
         
@@ -1138,10 +1420,17 @@ class IntervalsSync:
         Power zones (icu_zone_times): list of {"id": "Z3", "secs": 600}
         HR zones (icu_hr_zone_times): flat array of seconds [0, 120, 300, 180, 60]
         
-        Power preferred. HR fallback only when power unavailable.
+        Default: power preferred, HR fallback.
+        When zone_preference is configured for the sport_family, respects that
+        preference (e.g. run:hr → HR preferred for running, power fallback).
         HR zones typically 5-zone (indices 0-4 → z1-z5), sometimes 7.
         """
-        # Try power zones first
+        # Determine preference for this sport family
+        prefer_hr = (sport_family and 
+                     self.zone_preference.get(sport_family) == "hr")
+        
+        # Extract both zone sets
+        power_zones = None
         icu_zone_times = activity.get("icu_zone_times", [])
         if icu_zone_times:
             pz = {}
@@ -1151,9 +1440,9 @@ class IntervalsSync:
                 if zone_id in ("z1", "z2", "z3", "z4", "z5", "z6", "z7"):
                     pz[zone_id] = secs
             if pz:
-                return (pz, "power")
+                power_zones = pz
         
-        # Fallback to HR zones
+        hr_zones = None
         icu_hr_zone_times = activity.get("icu_hr_zone_times", [])
         if icu_hr_zone_times:
             zone_labels = ("z1", "z2", "z3", "z4", "z5", "z6", "z7")
@@ -1162,7 +1451,19 @@ class IntervalsSync:
                 if idx < len(zone_labels) and secs:
                     hz[zone_labels[idx]] = secs
             if hz:
-                return (hz, "hr")
+                hr_zones = hz
+        
+        # Return based on preference
+        if prefer_hr:
+            if hr_zones:
+                return (hr_zones, "hr")
+            if power_zones:
+                return (power_zones, "power")
+        else:
+            if power_zones:
+                return (power_zones, "power")
+            if hr_zones:
+                return (hr_zones, "hr")
         
         return ({}, None)
 
@@ -1249,18 +1550,22 @@ class IntervalsSync:
         - Z3: Grey zone / Tempo (between LT1 and LT2) - to be minimized
         - Z4+: Hard / Quality (above LT2) - ~20% target
         
-        Uses _get_activity_zones() for consistent power/HR fallback.
+        Uses _get_activity_zones() for consistent zone preference support.
         """
         z1_time = 0
         z2_time = 0
         z3_time = 0
         z4_plus_time = 0
         total_time = 0
+        basis_set = set()
         
         for act in activities:
-            zones, _basis = self._get_activity_zones(act)
+            sf = self.SPORT_FAMILIES.get(act.get("type", ""), None)
+            zones, basis = self._get_activity_zones(act, sport_family=sf)
             
             if zones:
+                if basis:
+                    basis_set.add(basis)
                 z1_time += zones.get("z1", 0)
                 z2_time += zones.get("z2", 0)
                 z3_time += zones.get("z3", 0)
@@ -1268,12 +1573,21 @@ class IntervalsSync:
                                zones.get("z6", 0) + zones.get("z7", 0))
                 total_time += sum(zones.values())
         
+        # Determine aggregate zone basis
+        if len(basis_set) > 1:
+            zone_basis = "mixed"
+        elif len(basis_set) == 1:
+            zone_basis = next(iter(basis_set))
+        else:
+            zone_basis = None
+        
         return {
             "z1_time": z1_time,
             "z2_time": z2_time,
             "z3_time": z3_time,
             "z4_plus_time": z4_plus_time,
-            "total_time": total_time
+            "total_time": total_time,
+            "zone_basis": zone_basis
         }
     
     # === SEILER TID (Training Intensity Distribution) v3.4.0 ===
@@ -1288,64 +1602,58 @@ class IntervalsSync:
             Seiler Z2 = z3       (between LT1 and LT2)
             Seiler Z3 = z4 + z5 + z6 + z7  (above LT2)
 
-        Uses power zones when available, falls back to HR zones.
+        Uses _get_activity_zones() for consistent zone preference support.
 
         Args:
             activities: List of activity dicts with zone data
             sport_family_filter: If set, only include activities matching
-                                 this sport family (from SPORT_FAMILIES)
+                                 this sport family (from SPORT_FAMILIES).
+                                 Note: this controls which activities enter
+                                 the aggregation; zone preference uses each
+                                 activity's own sport family (separate lookup).
 
-        Returns dict with z1_seconds, z2_seconds, z3_seconds, total_seconds
+        Returns dict with z1_seconds, z2_seconds, z3_seconds, total_seconds, zone_basis
         """
         sz1 = 0
         sz2 = 0
         sz3 = 0
+        basis_set = set()
 
         for act in activities:
-            # Apply sport family filter if specified
+            # Apply sport family filter if specified (controls inclusion)
+            activity_type = act.get("type", "Unknown")
+            act_sport_family = self.SPORT_FAMILIES.get(activity_type, "other")
             if sport_family_filter:
-                activity_type = act.get("type", "Unknown")
-                if self.SPORT_FAMILIES.get(activity_type, "other") != sport_family_filter:
+                if act_sport_family != sport_family_filter:
                     continue
 
-            zones = None
-
-            # Power zones (preferred)
-            icu_zone_times = act.get("icu_zone_times", [])
-            if icu_zone_times:
-                pz = {}
-                for zone in icu_zone_times:
-                    zone_id = zone.get("id", "").lower()
-                    secs = zone.get("secs", 0)
-                    if zone_id in ["z1", "z2", "z3", "z4", "z5", "z6", "z7"]:
-                        pz[zone_id] = secs
-                if pz:
-                    zones = pz
-
-            # HR zones (fallback)
-            if not zones:
-                icu_hr_zone_times = act.get("icu_hr_zone_times", [])
-                if icu_hr_zone_times:
-                    zone_labels = ["z1", "z2", "z3", "z4", "z5", "z6", "z7"]
-                    hz = {}
-                    for idx, secs in enumerate(icu_hr_zone_times):
-                        if idx < len(zone_labels) and secs:
-                            hz[zone_labels[idx]] = secs
-                    if hz:
-                        zones = hz
+            # Zone preference uses each activity's own sport family
+            zones, basis = self._get_activity_zones(act, sport_family=act_sport_family)
 
             if zones:
+                if basis:
+                    basis_set.add(basis)
                 sz1 += zones.get("z1", 0) + zones.get("z2", 0)
                 sz2 += zones.get("z3", 0)
                 sz3 += (zones.get("z4", 0) + zones.get("z5", 0) +
                         zones.get("z6", 0) + zones.get("z7", 0))
 
         total = sz1 + sz2 + sz3
+        
+        # Determine aggregate zone basis
+        if len(basis_set) > 1:
+            zone_basis = "mixed"
+        elif len(basis_set) == 1:
+            zone_basis = next(iter(basis_set))
+        else:
+            zone_basis = None
+        
         return {
             "z1_seconds": sz1,
             "z2_seconds": sz2,
             "z3_seconds": sz3,
-            "total_seconds": total
+            "total_seconds": total,
+            "zone_basis": zone_basis
         }
 
     def _calculate_polarization_index(self, z1_frac: float, z2_frac: float,
@@ -1421,9 +1729,11 @@ class IntervalsSync:
             z1_pct, z2_pct, z3_pct
             polarization_index (float or null)
             classification (string)
+            zone_basis ("power" | "hr" | "mixed" | null)
         """
         zones = self._aggregate_seiler_zones(activities, sport_family_filter)
         total = zones["total_seconds"]
+        zone_basis = zones["zone_basis"]
 
         if total == 0:
             return {
@@ -1434,7 +1744,8 @@ class IntervalsSync:
                 "z2_pct": None,
                 "z3_pct": None,
                 "polarization_index": None,
-                "classification": None
+                "classification": None,
+                "zone_basis": None
             }
 
         z1_frac = zones["z1_seconds"] / total
@@ -1452,7 +1763,8 @@ class IntervalsSync:
             "z2_pct": round(z2_frac * 100, 1),
             "z3_pct": round(z3_frac * 100, 1),
             "polarization_index": pi,
-            "classification": classification
+            "classification": classification,
+            "zone_basis": zone_basis
         }
 
     def _calculate_durability(self, activities_7d: List[Dict],
@@ -1610,6 +1922,84 @@ class IntervalsSync:
                      "(+/-0.03 = stable).")
         }
 
+    def _calculate_hrrc_trend(self, activities_7d: List[Dict],
+                               activities_28d: List[Dict]) -> Dict:
+        """
+        Calculate aggregate HRRc (heart rate recovery) as a recovery quality trend.
+
+        HRRc = largest 60-second HR drop (bpm) after exceeding configured
+        threshold HR for >1 minute. Intervals.icu API field: icu_hrr,
+        displayed as HRRc. Higher = faster parasympathetic recovery.
+
+        Qualifying criteria: icu_hrr is not None (self-selects — only fires
+        when threshold HR held >1min and cooldown recorded).
+
+        Window minimums: 7d >= 1 session, 28d >= 3 sessions.
+        Trend: 7d mean vs 28d mean, >10% difference = meaningful
+        (conservative threshold for noisy field metric; lab CV ~4% but
+        field CV likely 10-15% due to variable workout type, intensity,
+        and recording conditions).
+
+        References:
+        - Fecchio et al. (2019) systematic review: HRR60s exhibits high
+          reliability (ICC up to 0.99, CV 3.4-13.5% across protocols)
+        - Lamberts et al. (2024): HRR60s ICC=0.97, TEM=4.3% in cyclists
+        - Buchheit (2006): HRR associated with training loads, not VO2max
+        - Intervals.icu: renamed HRR to HRRc to avoid confusion with
+          Heart Rate Reserve (Tinker, 2019)
+        """
+        def _filter_qualifying(activities: List[Dict]) -> List[float]:
+            """Return HRRc values from sessions where it was recorded."""
+            qualifying = []
+            for act in activities:
+                hrrc = act.get("icu_hrr")
+                if hrrc is None:
+                    continue
+                # API may return a dict (e.g. {"value": 34}) or a plain number
+                if isinstance(hrrc, dict):
+                    hrrc = hrrc.get("value") or hrrc.get("hrr")
+                if isinstance(hrrc, (int, float)) and hrrc > 0:
+                    qualifying.append(float(hrrc))
+            return qualifying
+
+        vals_7d = _filter_qualifying(activities_7d)
+        vals_28d = _filter_qualifying(activities_28d)
+
+        # 7d: >= 1 session (report value or mean)
+        mean_7d = round(statistics.mean(vals_7d), 1) if len(vals_7d) >= 1 else None
+        # 28d: >= 3 sessions (noise dampening for field metric)
+        mean_28d = round(statistics.mean(vals_28d), 1) if len(vals_28d) >= 3 else None
+
+        # Trend: >10% difference = meaningful (conservative for field noise)
+        trend = None
+        if mean_7d is not None and mean_28d is not None and mean_28d > 0:
+            pct_change = (mean_7d - mean_28d) / mean_28d
+            if pct_change > 0.10:
+                trend = "improving"
+            elif pct_change < -0.10:
+                trend = "declining"
+            else:
+                trend = "stable"
+
+        if self.debug:
+            print(f"  HRRc: 7d={mean_7d} ({len(vals_7d)} sessions), "
+                  f"28d={mean_28d} ({len(vals_28d)} sessions), trend={trend}")
+
+        return {
+            "mean_hrrc_7d": mean_7d,
+            "mean_hrrc_28d": mean_28d,
+            "qualifying_sessions_7d": len(vals_7d),
+            "qualifying_sessions_28d": len(vals_28d),
+            "trend": trend,
+            "note": ("HRRc = heart rate recovery (largest 60s HR drop in bpm "
+                     "after exceeding threshold HR for >1 min). Higher = "
+                     "better parasympathetic recovery. Null when threshold "
+                     "not reached, recording stopped before cooldown, or no "
+                     "HR data. Trend: 7d mean vs 28d mean, >10% = meaningful "
+                     "(min 1 session/7d, 3 sessions/28d). Display only — "
+                     "not wired into readiness_decision signals.")
+        }
+
     def _calculate_tid_comparison(self, seiler_tid_7d: Dict,
                                    seiler_tid_28d: Dict) -> Dict:
         """
@@ -1672,78 +2062,652 @@ class IntervalsSync:
                      "more polarized acutely.")
         }
 
-    def _detect_phase(self, acwr: float, ri: float, quality_intensity_pct: float,
-                      hard_days_per_week: int,
-                      strain: float, monotony: float, tsb: float, ctl: float) -> Tuple[str, List[str]]:
+    # === PHASE DETECTION v2 (dual-stream, spec-driven) ===
+    
+    def _detect_phase_v2(self, weekly_rows: List[Dict], planned_workouts: List[Dict],
+                          race_calendar: Dict, previous_phase: Optional[str] = None,
+                          today: str = None, dossier_declared: Optional[str] = None,
+                          primary_sport: Optional[str] = None) -> Dict:
         """
-        Detect current training phase based on Section 11 Phase Detection Criteria
+        Dual-stream phase detection (v2).
         
-        Uses both time-based quality intensity % AND session-based hard days/week.
-        For high-volume athletes (10+ hrs/week), time-based metrics undercount intensity
-        because hard sessions are diluted by volume. Session count provides the correction.
+        Stream 1: Completed history — rolling 4-week lookback from weekly_180d rows.
+        Stream 2: Planned calendar — next 7-14 days of planned workouts + race calendar.
+        
+        Returns full phase output structure with confidence and reason_codes.
+        
+        Phase states: Build, Base, Peak, Taper, Deload, Recovery, Overreached, null.
         """
-        triggers = []
+        if today is None:
+            today = datetime.now().strftime("%Y-%m-%d")
         
-        # Check for Overreached first (safety)
-        if acwr and acwr > 1.3:
-            triggers.append(f"ACWR {acwr} > 1.3")
-        if strain and strain > 3500:
-            triggers.append(f"Strain {strain} > 3500")
-        if ri and ri < 0.6:
-            triggers.append(f"RI {ri} < 0.6")
-        if monotony and monotony > 2.5:
-            triggers.append(f"Monotony {monotony} > 2.5")
+        reason_codes = []
         
-        if len(triggers) >= 2 or (ri and ri < 0.6):
-            return "Overreached", triggers
+        # Compute features from both streams
+        s1 = self._phase_stream1_features(weekly_rows)
+        s2 = self._phase_stream2_features(planned_workouts, race_calendar, s1, today, primary_sport)
         
-        # Recovery phase
-        if tsb and tsb > 10:
-            triggers = [f"TSB {tsb} > +10"]
-            return "Recovery", triggers
+        # Data quality assessment
+        data_quality = self._phase_data_quality(weekly_rows, s1, reason_codes)
         
-        # Taper phase
-        if tsb and tsb > 0 and ctl:
-            if 0 < tsb <= 10:
-                triggers = [f"TSB {tsb} positive", "CTL stable/declining"]
-                return "Taper", triggers
+        # Classification
+        phase, confidence, extra_reasons = self._phase_classify(
+            s1, s2, previous_phase, data_quality
+        )
+        reason_codes.extend(extra_reasons)
         
-        # Build phase — by time OR by session count
-        # High-volume athletes may show low quality % but still train 2+ hard days/week
-        build_by_time = (quality_intensity_pct and 15 <= quality_intensity_pct <= 25)
-        build_by_sessions = (hard_days_per_week >= 2)
+        # Phase duration: count consecutive weeks of same phase from recent weekly rows
+        phase_duration = 0
+        if phase and weekly_rows:
+            for row in reversed(weekly_rows):
+                if row.get("phase_detected") == phase:
+                    phase_duration += 1
+                else:
+                    break
+            phase_duration += 1  # include current in-progress week
         
-        if acwr and 0.8 <= acwr <= 1.3:
-            if build_by_time or build_by_sessions:
-                triggers = [f"ACWR {acwr} in 0.8-1.3"]
-                if build_by_time:
-                    triggers.append(f"Quality Intensity {quality_intensity_pct}% in 15-25%")
-                if build_by_sessions:
-                    triggers.append(f"Hard days {hard_days_per_week}/week >= 2")
-                return "Build", triggers
+        # Dossier agreement
+        dossier_agreement = None
+        if dossier_declared:
+            dossier_agreement = (dossier_declared == phase) if phase else None
         
-        # Base phase — low intensity by BOTH time and session count
-        if acwr and 0.8 <= acwr < 1.0:
-            triggers = [f"ACWR {acwr} in 0.8-1.0"]
-            if quality_intensity_pct is not None:
-                triggers.append(f"Quality Intensity {quality_intensity_pct}% < 15%")
-            if hard_days_per_week is not None:
-                triggers.append(f"Hard days {hard_days_per_week}/week <= 1")
-            return "Base", triggers
+        # Stream agreement
+        stream_agreement = s1.get("suggested_phase") == s2.get("suggested_phase")
+        if s1.get("suggested_phase") is None or s2.get("suggested_phase") is None:
+            stream_agreement = None  # can't assess if one stream has no opinion
         
-        # Peak phase — high intensity with controlled load
-        peak_by_time = (quality_intensity_pct and quality_intensity_pct > 20)
-        peak_by_sessions = (hard_days_per_week >= 3)
+        return {
+            "phase": phase,
+            "confidence": confidence,
+            "reason_codes": reason_codes,
+            "basis": {
+                "stream_1": {
+                    "ctl_slope": s1.get("ctl_slope"),
+                    "acwr_trend": s1.get("acwr_trend"),
+                    "hard_day_pattern": s1.get("hard_day_avg"),
+                    "weeks_available": s1.get("weeks_available", 0)
+                },
+                "stream_2": {
+                    "planned_tss_delta": s2.get("planned_tss_delta"),
+                    "hard_sessions_planned": s2.get("hard_sessions_planned"),
+                    "race_proximity": s2.get("race_proximity"),
+                    "next_week_load": s2.get("next_week_tss_delta"),
+                    "plan_coverage_current_week": s2.get("plan_coverage_current_week"),
+                    "plan_coverage_next_week": s2.get("plan_coverage_next_week")
+                },
+                "data_quality": data_quality,
+                "stream_agreement": stream_agreement
+            },
+            "previous_phase": previous_phase,
+            "phase_duration_weeks": phase_duration,
+            "dossier_declared": dossier_declared,
+            "dossier_agreement": dossier_agreement
+        }
+    
+    def _phase_stream1_features(self, weekly_rows: List[Dict]) -> Dict:
+        """
+        Extract Stream 1 (retrospective) features from weekly_180d rows.
+        Uses last 4 weeks for trend detection.
+        """
+        result = {
+            "weeks_available": len(weekly_rows),
+            "ctl_slope": None,
+            "ctl_values": [],
+            "acwr_trend": None,
+            "hard_day_avg": None,
+            "hard_day_values": [],
+            "monotony_trend": None,
+            "tss_values": [],
+            "primary_tss_values": [],
+            "suggested_phase": None
+        }
         
-        if acwr and acwr >= 1.0 and (peak_by_time or peak_by_sessions):
-            triggers = [f"ACWR {acwr} >= 1.0"]
-            if peak_by_time:
-                triggers.append(f"Quality Intensity {quality_intensity_pct}% > 20%")
-            if peak_by_sessions:
-                triggers.append(f"Hard days {hard_days_per_week}/week >= 3")
-            return "Peak", triggers
+        if not weekly_rows:
+            return result
         
-        return "Indeterminate", ["Insufficient data for phase detection"]
+        # Use last 4 weeks (or fewer if not available)
+        recent = weekly_rows[-4:] if len(weekly_rows) >= 4 else weekly_rows
+        
+        # CTL slope: linear trend over available weeks
+        ctl_values = [r.get("ctl_end") for r in recent if r.get("ctl_end") is not None]
+        result["ctl_values"] = ctl_values
+        if len(ctl_values) >= 2:
+            # Simple slope: (last - first) / n_weeks
+            result["ctl_slope"] = round((ctl_values[-1] - ctl_values[0]) / len(ctl_values), 2)
+        
+        # TSS values for trend
+        result["tss_values"] = [r.get("total_tss", 0) or 0 for r in recent]
+        result["primary_tss_values"] = [r.get("primary_sport_tss", 0) or 0 for r in recent]
+        
+        # ACWR trend: direction over the window
+        acwr_values = [r.get("acwr") for r in recent if r.get("acwr") is not None]
+        if len(acwr_values) >= 2:
+            acwr_diff = acwr_values[-1] - acwr_values[0]
+            if acwr_diff > 0.1:
+                result["acwr_trend"] = "rising"
+            elif acwr_diff < -0.1:
+                result["acwr_trend"] = "falling"
+            else:
+                result["acwr_trend"] = "stable"
+        
+        # Hard-day density
+        hard_values = [r.get("hard_days", 0) or 0 for r in recent]
+        result["hard_day_values"] = hard_values
+        if hard_values:
+            result["hard_day_avg"] = round(statistics.mean(hard_values), 1)
+        
+        # Monotony trend (last week vs average of prior weeks)
+        mono_values = [r.get("monotony") for r in recent if r.get("monotony") is not None]
+        if len(mono_values) >= 2:
+            if mono_values[-1] and mono_values[-1] > 2.5:
+                result["monotony_trend"] = "elevated"
+            else:
+                result["monotony_trend"] = "normal"
+        
+        # Stream 1 suggested phase (retrospective only)
+        result["suggested_phase"] = self._phase_from_stream1(result, recent)
+        
+        return result
+    
+    def _phase_from_stream1(self, features: Dict, recent_rows: List[Dict]) -> Optional[str]:
+        """Suggest a phase from Stream 1 features alone. Returns phase or None."""
+        ctl_slope = features.get("ctl_slope")
+        hard_avg = features.get("hard_day_avg")
+        acwr_trend = features.get("acwr_trend")
+        mono_trend = features.get("monotony_trend")
+        
+        # Overreached: requires convergence of multiple signals, not a single metric.
+        # Path A: Current week ACWR > 1.5 (acute spike, Gabbett danger zone)
+        # Path B: Sustained elevated monotony (>2.5) + ACWR trending up or >1.3
+        if mono_trend == "elevated":
+            # Use CURRENT week's ACWR, not historical max — a spike 3 weeks ago
+            # that's since resolved should not keep triggering Overreached
+            current_acwr = recent_rows[-1].get("acwr") if recent_rows else None
+            if current_acwr is not None and current_acwr > 1.5:
+                return "Overreached"
+            # Sustained pattern: elevated monotony + ACWR still above normal
+            if current_acwr is not None and current_acwr > 1.3 and acwr_trend == "rising":
+                return "Overreached"
+        
+        if ctl_slope is None:
+            return None
+        
+        # Build: rising CTL + sustained hard days
+        if ctl_slope > 1.0 and hard_avg is not None and hard_avg >= 1.5:
+            return "Build"
+        
+        # Base: flat CTL + moderate volume
+        if -1.0 <= ctl_slope <= 1.0 and hard_avg is not None and hard_avg <= 1.5:
+            return "Base"
+        
+        # Declining CTL — could be Deload, Taper, or Recovery (need Stream 2)
+        if ctl_slope < -1.0:
+            return None  # ambiguous without calendar context
+        
+        return None
+    
+    def _phase_stream2_features(self, planned_workouts: List[Dict], race_calendar: Dict,
+                                 stream1: Dict, today: str,
+                                 primary_sport: Optional[str] = None) -> Dict:
+        """
+        Extract Stream 2 (prospective) features from planned workouts and race calendar.
+        
+        Windows are aligned to the training week (configurable via
+        .sync_config.json, WEEK_START env var, or --week-start CLI;
+        default Monday/ISO). This prevents mid-week contamination where
+        a deload week's window leaks into the next build week.
+        
+        - Current week remainder: today → last day of training week
+        - Next week: next full training week (7 days)
+        
+        When primary_sport is set, planned_tss_delta and next_week_tss_delta
+        are filtered to primary sport only (numerator from planned workouts,
+        denominator from weekly history). Falls back to all-sport when
+        primary sport data is unavailable.
+        """
+        result = {
+            "planned_tss_delta": None,
+            "hard_sessions_planned": 0,
+            "race_proximity": None,
+            "race_category": None,
+            "next_week_tss_delta": None,
+            "plan_coverage_current_week": 0.0,
+            "plan_coverage_next_week": 0.0,
+            "suggested_phase": None
+        }
+        
+        today_date = datetime.strptime(today, "%Y-%m-%d")
+        
+        # Race proximity from race_calendar
+        next_race = race_calendar.get("next_race")
+        if next_race and next_race.get("days_until") is not None:
+            result["race_proximity"] = next_race["days_until"]
+            result["race_category"] = next_race.get("category")
+        
+        if not planned_workouts:
+            return result
+        
+        # Week-aligned boundaries (configurable via self.week_start_day)
+        # week_start_day: Mon=0..Sun=6 (Python weekday convention)
+        # Week end day = day before start (e.g., Sun start → Sat end, Mon start → Sun end)
+        week_end_day = (self.week_start_day - 1) % 7
+        today_weekday = today_date.weekday()  # Mon=0..Sun=6
+        days_to_week_end = (week_end_day - today_weekday) % 7
+        current_week_end = today_date + timedelta(days=days_to_week_end)
+        # Next training week: day after current_week_end → 6 days later
+        next_week_start = current_week_end + timedelta(days=1)
+        next_week_end = next_week_start + timedelta(days=6)
+        
+        # Classify planned workouts into current week remainder and next full week
+        current_week_workouts = []
+        next_week_workouts = []
+        current_week_tss = 0
+        current_week_tss_primary = 0
+        
+        for pw in planned_workouts:
+            pw_date_str = (pw.get("date") or "")[:10]
+            if not pw_date_str or pw_date_str == "unknown":
+                continue
+            try:
+                pw_date = datetime.strptime(pw_date_str, "%Y-%m-%d")
+            except ValueError:
+                continue
+            
+            pw_tss = pw.get("planned_tss") or 0
+            pw_sport = self.SPORT_FAMILIES.get(pw.get("sport_type", ""))
+            is_primary = (pw_sport == primary_sport) if primary_sport else False
+            
+            # Current week remainder (today through end of training week)
+            if today_date <= pw_date <= current_week_end:
+                current_week_workouts.append(pw)
+                current_week_tss += pw_tss
+                if is_primary:
+                    current_week_tss_primary += pw_tss
+            # Next full training week
+            elif next_week_start <= pw_date <= next_week_end:
+                next_week_workouts.append(pw)
+        
+        # Plan coverage: sessions / expected sessions
+        # TODO(v3.71): expected_sessions should use avg activity_count from weekly_180d rows
+        # (available in rows but not currently passed through stream1 features).
+        # Hard-coded 5 means athletes training 7×/week get coverage >1.0, and 3×/week get 0.6.
+        # Impact is limited: plan_coverage only adjusts confidence, not classification.
+        tss_values = stream1.get("tss_values", [])
+        primary_tss_values = stream1.get("primary_tss_values", [])
+        weeks_avail = stream1.get("weeks_available", 0)
+        expected_sessions = 5
+        if weeks_avail > 0:
+            pass  # Future: extract from weekly_rows activity_count average
+        
+        result["plan_coverage_current_week"] = round(
+            len(current_week_workouts) / expected_sessions, 2
+        ) if expected_sessions > 0 else 0.0
+        result["plan_coverage_next_week"] = round(
+            len(next_week_workouts) / expected_sessions, 2
+        ) if expected_sessions > 0 else 0.0
+        
+        # Planned TSS delta: current week remainder planned / avg of prior 3 weeks actual
+        # Use primary-sport values when available; fall back to all-sport
+        use_primary = primary_sport and primary_tss_values and any(v > 0 for v in primary_tss_values)
+        denom_values = primary_tss_values if use_primary else tss_values
+        numer_current = current_week_tss_primary if use_primary else current_week_tss
+        
+        avg_tss_prev = None
+        if denom_values and len(denom_values) >= 3:
+            avg_tss_prev = statistics.mean(denom_values[-3:])
+        elif denom_values:
+            avg_tss_prev = statistics.mean(denom_values)
+        
+        # Scale: project current week remainder to full-week equivalent
+        # so it's comparable to the historical weekly average.
+        # days_remaining = days_to_week_end + 1 (inclusive of today)
+        days_remaining = days_to_week_end + 1
+        if avg_tss_prev and avg_tss_prev > 0 and numer_current > 0 and days_remaining > 0:
+            projected_week_tss = numer_current * (7 / days_remaining)
+            result["planned_tss_delta"] = round(projected_week_tss / avg_tss_prev, 2)
+        
+        # Next week TSS delta (for Deload confirmation: does load resume?)
+        next_week_tss_all = sum(pw.get("planned_tss") or 0 for pw in next_week_workouts)
+        if use_primary:
+            next_week_tss = sum(
+                (pw.get("planned_tss") or 0) for pw in next_week_workouts
+                if self.SPORT_FAMILIES.get(pw.get("sport_type", "")) == primary_sport
+            )
+        else:
+            next_week_tss = next_week_tss_all
+        if avg_tss_prev and avg_tss_prev > 0 and next_week_tss > 0:
+            result["next_week_tss_delta"] = round(next_week_tss / avg_tss_prev, 2)
+        
+        # Hard sessions planned (current week remainder only)
+        # A planned workout is "hard" if its name or type suggests intensity
+        hard_count = 0
+        current_week_sessions = len(current_week_workouts)
+        for pw in current_week_workouts:
+            ws = pw.get("workout_summary") or ""
+            cat = (pw.get("type") or "").upper()
+            name = (pw.get("name") or "").lower()
+            # Heuristic: interval markers, race categories, or intensity keywords
+            if ("×" in ws or "sets" in ws.lower() or
+                cat in ("RACE_A", "RACE_B", "RACE_C") or
+                any(kw in name for kw in ("interval", "vo2", "threshold", "sprint", "tempo",
+                                           "race", "hard", "intensity", "sweet spot"))):
+                hard_count += 1
+        result["hard_sessions_planned"] = hard_count
+        result["next_7d_sessions"] = current_week_sessions  # renamed semantically but key preserved for compat
+        
+        # Stream 2 suggested phase
+        result["suggested_phase"] = self._phase_from_stream2(result)
+        
+        return result
+    
+    def _phase_from_stream2(self, features: Dict) -> Optional[str]:
+        """Suggest a phase from Stream 2 features alone. Returns phase or None."""
+        race_prox = features.get("race_proximity")
+        race_cat = features.get("race_category")
+        tss_delta = features.get("planned_tss_delta")
+        next_week_delta = features.get("next_week_tss_delta")
+        
+        # Taper: race within 14 days + volume reducing
+        if race_prox is not None and race_prox <= 14 and race_cat in ("RACE_A", "RACE_B"):
+            if tss_delta is not None and tss_delta <= 0.80:
+                return "Taper"
+            # Race is close but volume not yet reducing — could be Peak
+            return "Taper"  # err toward Taper when race is imminent
+        
+        # Peak: race within 21 days + no volume reduction yet
+        if race_prox is not None and race_prox <= 21 and race_cat in ("RACE_A", "RACE_B"):
+            if tss_delta is not None and tss_delta > 0.80:
+                return "Peak"
+        
+        # Deload signal: ≥20% reduction + next week resumes
+        if tss_delta is not None and tss_delta <= 0.80:
+            if next_week_delta is not None and next_week_delta >= 0.85:
+                return "Deload"
+            # Next week unknown — Deload candidate (can't confirm)
+            if features.get("plan_coverage_next_week", 0) < 0.3:
+                return None  # ambiguous, can't confirm rebound
+            return "Deload"
+        
+        return None
+    
+    def _phase_data_quality(self, weekly_rows: List[Dict], stream1: Dict,
+                             reason_codes: List[str]) -> str:
+        """Assess data quality and append reason codes. Returns 'good', 'mixed', or 'poor'."""
+        quality = "good"
+        weeks = stream1.get("weeks_available", 0)
+        
+        if weeks < 3:
+            reason_codes.append("INSUFFICIENT_LOOKBACK")
+            quality = "poor"
+        
+        # Check intensity basis breakdown across recent weeks
+        if weekly_rows:
+            recent = weekly_rows[-4:] if len(weekly_rows) >= 4 else weekly_rows
+            hr_only_weeks = 0
+            for row in recent:
+                ibb = row.get("intensity_basis_breakdown")
+                if ibb and ibb.get("hr", 0) > 0 and ibb.get("power", 0) == 0:
+                    hr_only_weeks += 1
+            if hr_only_weeks > len(recent) / 2:
+                has_hr_preference = any(b == "hr" for b in self.zone_preference.values())
+                if not has_hr_preference:
+                    reason_codes.append("HR_ONLY_MAJORITY")
+                    quality = "mixed" if quality == "good" else quality
+        
+        return quality
+    
+    def _phase_classify(self, s1: Dict, s2: Dict, previous_phase: Optional[str],
+                         data_quality: str) -> Tuple[Optional[str], str, List[str]]:
+        """
+        Core classification logic. Combines both streams, applies scoring, 
+        hysteresis, and confidence.
+        
+        Returns (phase, confidence, extra_reason_codes).
+        """
+        reasons = []
+        
+        s1_phase = s1.get("suggested_phase")
+        s2_phase = s2.get("suggested_phase")
+        race_prox = s2.get("race_proximity")
+        race_cat = s2.get("race_category")
+        tss_delta = s2.get("planned_tss_delta")
+        next_week_delta = s2.get("next_week_tss_delta")
+        ctl_slope = s1.get("ctl_slope")
+        hard_avg = s1.get("hard_day_avg")
+        plan_cov_curr = s2.get("plan_coverage_current_week", 0)
+        plan_cov_next = s2.get("plan_coverage_next_week", 0)
+        weeks = s1.get("weeks_available", 0)
+        
+        # planned_tss_delta is only meaningful if enough sessions are planned in the next 7 days.
+        # With few planned sessions, planned TSS is a subset — delta will be misleadingly low.
+        next_7d_sessions = s2.get("next_7d_sessions", 0)
+        tss_delta_reliable = tss_delta is not None and next_7d_sessions >= 3
+        
+        # === Insufficient data guard ===
+        if data_quality == "poor" and weeks < 2:
+            reasons.append("INSUFFICIENT_DATA")
+            return None, "low", reasons
+        
+        # === Priority 1: Overreached (safety) ===
+        if s1_phase == "Overreached":
+            return "Overreached", "high", ["SAFETY_ACWR_OR_MONOTONY"]
+        
+        # Secondary Overreached check — elevated monotony alone is insufficient.
+        # Require actual acute overload evidence (ACWR rising AND hard-day density high).
+        # "Rising" ACWR from 0.8→1.0 with 2 hard days is normal Build, not overreaching.
+        
+        # === Priority 2: Taper (race-anchored) ===
+        if race_prox is not None and race_prox <= 14 and race_cat in ("RACE_A", "RACE_B"):
+            confidence = "high"
+            if tss_delta_reliable and tss_delta <= 0.80:
+                reasons.append("RACE_IMMINENT_VOLUME_REDUCING")
+            else:
+                reasons.append("RACE_IMMINENT")
+                confidence = "medium"
+            return "Taper", confidence, reasons
+        
+        # === Priority 3: Peak (race approaching, not yet tapering) ===
+        if race_prox is not None and race_prox <= 21 and race_cat in ("RACE_A", "RACE_B"):
+            if not tss_delta_reliable or tss_delta > 0.80:
+                ctl_values = s1.get("ctl_values", [])
+                if ctl_values and len(ctl_values) >= 3:
+                    current_ctl = ctl_values[-1]
+                    max_ctl = max(ctl_values)
+                    if current_ctl >= max_ctl * 0.95:
+                        # At actual peak, CTL often flattens (slope ~0) as the athlete
+                        # is at cycle high but no longer gaining. Allow marginal decline.
+                        if ctl_slope is not None and ctl_slope >= -0.5:
+                            return "Peak", "medium", ["RACE_APPROACHING_CTL_HIGH"]
+        
+        # === Priority 3.5: Recovery (early check for clearly declining/idle athletes) ===
+        # Extended low load + 0 hard days + declining CTL → Recovery before Build/Base scoring
+        if (ctl_slope is not None and ctl_slope < -1.0 and
+                hard_avg is not None and hard_avg < 0.5 and weeks >= 3):
+            confidence = "medium" if data_quality != "poor" else "low"
+            reasons.append("DECLINING_LOAD_NO_HARD_DAYS")
+            return "Recovery", confidence, reasons
+        
+        # === Priority 4: Deload→Build transition ===
+        # When previous phase was Deload, expected next state is Build.
+        # TSS delta is unreliable here (prior 3-week avg includes the deload week).
+        # Use planned workout content instead.
+        if previous_phase == "Deload":
+            hard_planned = s2.get("hard_sessions_planned", 0)
+            if hard_planned >= 2:
+                return "Build", "medium", ["BUILD_RESUMING_AFTER_DELOAD"]
+            elif hard_planned >= 1 or (plan_cov_curr > 0 and (not tss_delta_reliable or tss_delta > 0.80)):
+                return "Build", "low", ["BUILD_RESUMING_AFTER_DELOAD_TENTATIVE"]
+        
+        # === Priority 5: Deload (calendar-driven or retrospective) ===
+        # Deload = Build history + reduced/easy planned load + ≤1 hard session planned.
+        # The 3-week Build history gate (weeks >= 3, rising CTL, hard_avg >= 1.5) is
+        # intentional: an athlete doing their first-ever deload with <3 weeks of Build
+        # data gets Recovery instead. This is the safer classification — without sufficient
+        # Build evidence, we can't distinguish "planned deload" from "athlete just isn't
+        # training hard". False Recovery is less harmful than false Deload.
+        # Three paths:
+        #  A) Reliable TSS delta ≤ 0.80 + ≤1 hard session → strong Deload signal
+        #  B) Sparse plan (< 3 sessions) + ≤1 hard session + Build history → Deload candidate
+        #  C) No plan at all + completed week TSS ≤ 80% of prior 3-week avg → retrospective Deload
+        hard_planned = s2.get("hard_sessions_planned", 0)
+        build_history = (ctl_slope is not None and ctl_slope > 0 and
+                        hard_avg is not None and hard_avg >= 1.5 and
+                        weeks >= 3)
+        
+        deload_signal = False
+        deload_path = None
+        
+        # Allow ≤1 hard session during deload — real deload weeks often keep
+        # one short quality session for neuromuscular maintenance (e.g., deload SS).
+        # 2+ hard sessions = not structurally a deload.
+        # When hard_planned == 1, require ≥3 planned sessions to trust the plan
+        # is representative — a 2-session plan with 1 hard is too sparse to judge.
+        if hard_planned == 0 or (hard_planned == 1 and next_7d_sessions >= 3):
+            # Path A: reliable TSS delta showing reduction
+            if tss_delta_reliable and tss_delta <= 0.80 and build_history:
+                deload_signal = True
+                deload_path = "A"
+            # Path B: sparse plan, all easy, strong Build history
+            elif (next_7d_sessions > 0 and not tss_delta_reliable and build_history
+                  and ctl_slope > 1.0 and hard_avg >= 2.0):
+                deload_signal = True
+                deload_path = "B"
+        
+        # Path C: Retrospective deload — no usable plan, but completed week
+        # shows clear TSS reduction vs prior 3 weeks.  Build evidence computed
+        # from prior 3 weeks ONLY (excludes the current deload week which
+        # would dilute hard_avg / ctl_slope in the 4-week window).
+        if not deload_signal and next_7d_sessions == 0:
+            tss_values = s1.get("tss_values", [])
+            hard_values = s1.get("hard_day_values", [])
+            if len(tss_values) >= 4 and len(hard_values) >= 4:
+                current_tss = tss_values[-1]
+                prior_3_avg = statistics.mean(tss_values[-4:-1])
+                prior_3_hard_avg = statistics.mean(hard_values[-4:-1])
+                
+                # Build evidence from PRIOR 3 weeks only
+                prior_build = (prior_3_hard_avg >= 1.5 and
+                               prior_3_avg > 0 and
+                               weeks >= 4)
+                
+                if prior_build:
+                    actual_ratio = current_tss / prior_3_avg if prior_3_avg > 0 else 1.0
+                    # ≤80% of prior volume — same threshold as Path A (≥20%
+                    # reduction).  Validated against 26 weeks of history: catches
+                    # confirmed deload weeks with zero false positives.
+                    # Hard-day count is NOT gated here: deload weeks often keep
+                    # 1-2 reduced-volume quality sessions (e.g., 2x10m SS) that
+                    # still trigger the zone ladder as "hard". The TSS reduction
+                    # captures the volume difference that matters.
+                    if actual_ratio <= 0.80:
+                        deload_signal = True
+                        deload_path = "C"
+        
+        if deload_signal:
+            if next_week_delta is not None and next_week_delta >= 0.80:
+                return "Deload", "high", ["BUILD_HISTORY_REDUCED_LOAD_REBOUND_CONFIRMED"]
+            elif plan_cov_next < 0.3:
+                reasons.append("PLAN_GAP_NEXT_WEEK")
+                conf = "medium" if deload_path == "A" else "medium"
+                return "Deload", conf, reasons
+            else:
+                return "Deload", "medium", ["BUILD_HISTORY_REDUCED_LOAD"]
+        
+        # Non-Build-history reduction: Recovery (only if CTL is also declining)
+        # A Base athlete with stable CTL and low planned TSS isn't recovering — they're maintaining.
+        if tss_delta_reliable and tss_delta <= 0.80 and hard_planned <= 1:
+            if not build_history and ctl_slope is not None and ctl_slope < -1.0:
+                confidence = "medium" if data_quality != "poor" else "low"
+                return "Recovery", confidence, ["NO_BUILD_HISTORY_LOW_LOAD"]
+        
+        # === Priority 6: Build / Base (scored) ===
+        build_score = 0
+        base_score = 0
+        
+        # CTL slope
+        if ctl_slope is not None:
+            if ctl_slope > 2.0:
+                build_score += 3
+            elif ctl_slope > 1.0:
+                build_score += 2
+            elif ctl_slope > 0:
+                build_score += 1
+            elif -1.0 <= ctl_slope <= 0:
+                base_score += 2
+            # ctl_slope < -1.0 already handled in Recovery early check
+        
+        # Hard-day density
+        if hard_avg is not None:
+            if hard_avg >= 2.5:
+                build_score += 2
+            elif hard_avg >= 1.5:
+                build_score += 1
+            elif hard_avg <= 1.0:
+                base_score += 2
+            else:
+                base_score += 1
+        
+        # ACWR trend
+        acwr_trend = s1.get("acwr_trend")
+        if acwr_trend == "rising":
+            build_score += 1
+        elif acwr_trend == "stable":
+            base_score += 1
+        elif acwr_trend == "falling":
+            base_score += 1
+        
+        # Planned week continues pattern (Stream 2) — only if enough planned sessions
+        if next_7d_sessions >= 3:
+            if s2.get("hard_sessions_planned", 0) >= 2:
+                build_score += 1
+            elif s2.get("hard_sessions_planned", 0) <= 1:
+                base_score += 1
+        
+        # Determine winner
+        margin = build_score - base_score
+        
+        if margin >= 2:
+            phase = "Build"
+        elif margin <= -2:
+            phase = "Base"
+        elif margin > 0:
+            phase = previous_phase if previous_phase in ("Build", "Base") else "Build"
+        elif margin < 0:
+            phase = previous_phase if previous_phase in ("Build", "Base") else "Base"
+        else:
+            if previous_phase in ("Build", "Base"):
+                phase = previous_phase
+            else:
+                phase = None
+                reasons.append("BUILD_BASE_AMBIGUOUS")
+        
+        if phase is None:
+            confidence = "low"
+        elif abs(margin) >= 3 and data_quality == "good":
+            confidence = "high"
+        elif abs(margin) >= 2 or data_quality == "good":
+            confidence = "medium"
+        else:
+            confidence = "low"
+        
+        # === Hysteresis for normal transitions ===
+        if phase and previous_phase and phase != previous_phase:
+            if previous_phase not in ("Overreached", None):
+                reasons.append(f"PHASE_TRANSITION_{previous_phase}_TO_{phase}")
+        
+        # Adjust confidence for data quality
+        if data_quality == "poor" and confidence == "high":
+            confidence = "medium"
+        elif data_quality == "poor" and confidence == "medium":
+            confidence = "low"
+        
+        # Adjust confidence for plan coverage
+        if plan_cov_curr == 0 and plan_cov_next == 0:
+            if confidence == "high":
+                confidence = "medium"
+            reasons.append("NO_PLANNED_WORKOUTS")
+        
+        return phase, confidence, reasons
     
     def _determine_seasonal_context(self) -> str:
         """
@@ -1766,6 +2730,20 @@ class IntervalsSync:
             return "Late Season / Transition"
         else:
             return "Unknown"
+    
+    def _load_weekly_rows_for_phase(self) -> List[Dict]:
+        """Load recent weekly_180d rows from history.json for phase detection lookback."""
+        history_path = self.data_dir / self.HISTORY_FILE
+        if not history_path.exists():
+            return []
+        try:
+            with open(history_path, 'r') as f:
+                history_data = json.load(f)
+            rows = history_data.get("weekly_180d", [])
+            # Return last 4 weeks for lookback
+            return rows[-4:] if len(rows) >= 4 else rows
+        except Exception:
+            return []
     
     # === ALERTS SYSTEM (v3.3.0) ===
     
@@ -2099,13 +3077,393 @@ class IntervalsSync:
                 break
         return count
     
+    # === READINESS DECISION (v3.72) ===
+    
+    def _get_phase_modifiers(self, phase: Optional[str], race_week_active: bool) -> Dict:
+        """Return threshold modifiers based on current phase and race proximity.
+        
+        Returns:
+            amber_threshold: int — number of amber signals before Modify triggers
+            tsb_amber: float — TSB threshold for amber classification
+            tighten_red: bool — whether single red = Skip (not just Modify)
+            modifier_applied: str — audit label for which rule was applied
+        """
+        if race_week_active:
+            return {"amber_threshold": 1, "tsb_amber": -15, "tighten_red": True, "modifier_applied": "race_week_tightened"}
+        
+        modifiers = {
+            "Build":       {"amber_threshold": 3, "tsb_amber": -20, "tighten_red": False, "modifier_applied": "build_loosened"},
+            "Taper":       {"amber_threshold": 1, "tsb_amber": -15, "tighten_red": True,  "modifier_applied": "taper_tightened"},
+        }
+        
+        default = {"amber_threshold": 2, "tsb_amber": -15, "tighten_red": False, "modifier_applied": "default"}
+        return modifiers.get(phase, default)
+    
+    def _compute_readiness_decision(self, derived_metrics: Dict, alerts: List[Dict],
+                                     latest_wellness: Dict, activities: List[Dict],
+                                     race_calendar: Dict, current_tsb: float = None) -> Dict:
+        """
+        Pre-compute deterministic readiness decision (go/modify/skip).
+        
+        Priority ladder (first match wins):
+          P0 — Safety stop: RI < 0.6 or any tier-1 alarm → Skip
+          P1 — Acute overload: ACWR > 1.5, compound TSB+HRV, RI < 0.7 + persistent alerts → Skip/Modify
+          P2 — Accumulated fatigue: signal counting with phase-adjusted thresholds → Modify
+          P3 — Green light → Go
+        
+        Phase modifiers shift amber thresholds (Build loosens, Taper/Race week tightens).
+        AI reads the decision and writes the coaching note. Can override with explanation.
+        """
+        # --- Gather inputs ---
+        ri = derived_metrics.get("recovery_index")
+        acwr = derived_metrics.get("acwr")
+        tsb = current_tsb
+        
+        latest_hrv = derived_metrics.get("latest_hrv")
+        latest_rhr = derived_metrics.get("latest_rhr")
+        hrv_baseline_7d = derived_metrics.get("hrv_baseline_7d")
+        rhr_baseline_7d = derived_metrics.get("rhr_baseline_7d")
+        
+        phase_detection = derived_metrics.get("phase_detection", {})
+        current_phase = phase_detection.get("phase")
+        phase_duration = phase_detection.get("phase_duration_weeks")
+        
+        race_week_active = race_calendar.get("race_week", {}).get("active", False)
+        
+        # Sleep from latest wellness
+        sleep_secs = latest_wellness.get("sleepSecs")
+        sleep_hours = round(sleep_secs / 3600, 2) if sleep_secs else None
+        sleep_quality = latest_wellness.get("sleepQuality")
+        
+        # Phase modifiers
+        modifiers = self._get_phase_modifiers(current_phase, race_week_active)
+        
+        # --- Compute signal statuses ---
+        signals = {}
+        
+        # HRV signal
+        if latest_hrv and hrv_baseline_7d and hrv_baseline_7d > 0:
+            hrv_delta_pct = round(((latest_hrv - hrv_baseline_7d) / hrv_baseline_7d) * 100, 1)
+            if hrv_delta_pct <= -20:
+                hrv_status = "red"
+            elif hrv_delta_pct <= -10:
+                hrv_status = "amber"
+            else:
+                hrv_status = "green"
+            signals["hrv"] = {"status": hrv_status, "value": round(latest_hrv, 1), "baseline_7d": round(hrv_baseline_7d, 1), "delta_pct": hrv_delta_pct}
+        else:
+            hrv_delta_pct = None
+            signals["hrv"] = {"status": "unavailable", "value": latest_hrv, "baseline_7d": hrv_baseline_7d, "delta_pct": None}
+        
+        # RHR signal
+        if latest_rhr and rhr_baseline_7d and rhr_baseline_7d > 0:
+            rhr_delta = round(latest_rhr - rhr_baseline_7d, 1)
+            if rhr_delta >= 5:
+                rhr_status = "red"
+            elif rhr_delta >= 3:
+                rhr_status = "amber"
+            else:
+                rhr_status = "green"
+            signals["rhr"] = {"status": rhr_status, "value": round(latest_rhr, 1), "baseline_7d": round(rhr_baseline_7d, 1), "delta_bpm": rhr_delta}
+        else:
+            rhr_delta = None
+            signals["rhr"] = {"status": "unavailable", "value": latest_rhr, "baseline_7d": rhr_baseline_7d, "delta_bpm": None}
+        
+        # Sleep signal
+        if sleep_hours is not None:
+            sleep_red = sleep_hours < 5 or (sleep_quality is not None and sleep_quality >= 4)
+            sleep_amber = (not sleep_red) and (sleep_hours < 7 or (sleep_quality is not None and sleep_quality >= 3))
+            if sleep_red:
+                sleep_status = "red"
+            elif sleep_amber:
+                sleep_status = "amber"
+            else:
+                sleep_status = "green"
+            signals["sleep"] = {"status": sleep_status, "hours": sleep_hours, "quality": sleep_quality}
+        else:
+            signals["sleep"] = {"status": "unavailable", "hours": None, "quality": sleep_quality}
+        
+        # ACWR signal
+        if acwr is not None:
+            if acwr > 1.5:
+                acwr_status = "red"
+            elif acwr > 1.3:
+                acwr_status = "amber"
+            elif acwr < 0.8:
+                acwr_status = "amber"
+            else:
+                acwr_status = "green"
+            signals["acwr"] = {"status": acwr_status, "value": acwr}
+        else:
+            signals["acwr"] = {"status": "unavailable", "value": None}
+        
+        # RI signal (Section 8: >= 0.8 good, 0.6-0.79 moderate fatigue, < 0.6 deload)
+        if ri is not None:
+            if ri < 0.6:
+                ri_status = "red"
+            elif ri < 0.8:
+                ri_status = "amber"
+            else:
+                ri_status = "green"
+            signals["ri"] = {"status": ri_status, "value": ri}
+        else:
+            signals["ri"] = {"status": "unavailable", "value": None}
+        
+        # --- Count signals ---
+        green_count = sum(1 for s in signals.values() if s["status"] == "green")
+        amber_count = sum(1 for s in signals.values() if s["status"] == "amber")
+        red_count = sum(1 for s in signals.values() if s["status"] == "red")
+        unavailable_count = sum(1 for s in signals.values() if s["status"] == "unavailable")
+        
+        signal_summary = {"green": green_count, "amber": amber_count, "red": red_count, "unavailable": unavailable_count}
+        
+        # Collect amber/red signal names for reason strings
+        amber_signals = [k for k, v in signals.items() if v["status"] == "amber"]
+        red_signals = [k for k, v in signals.items() if v["status"] == "red"]
+        
+        # --- P0: Safety stop ---
+        tier1_alarms = [a for a in alerts if a.get("severity") == "alarm" and a.get("tier") == 1]
+        
+        if (ri is not None and ri < 0.6) or tier1_alarms:
+            alarm_refs = [a["metric"] for a in tier1_alarms]
+            reasons = []
+            if ri is not None and ri < 0.6:
+                reasons.append(f"RI {ri} < 0.6")
+            if tier1_alarms:
+                reasons.append(f"tier-1 alarms: {', '.join(alarm_refs)}")
+            
+            return {
+                "recommendation": "skip",
+                "priority": 0,
+                "signals": signals,
+                "signal_summary": signal_summary,
+                "phase_context": {
+                    "phase": current_phase,
+                    "phase_week": phase_duration,
+                    "amber_threshold": modifiers["amber_threshold"],
+                    "modifier_applied": modifiers["modifier_applied"]
+                },
+                "race_week_defers": False,
+                "modification": None,
+                "reason": f"P0 safety stop. {'; '.join(reasons)}.",
+                "alarm_refs": alarm_refs
+            }
+        
+        # --- P1: Acute overload ---
+        p1_skip_reasons = []
+        p1_modify_reasons = []
+        
+        if acwr is not None and acwr > 1.5:
+            p1_skip_reasons.append(f"ACWR {acwr} > 1.5")
+        
+        # Compound: deep TSB + HRV confirming
+        if tsb is not None and tsb < -30 and hrv_delta_pct is not None and hrv_delta_pct < -10:
+            p1_skip_reasons.append(f"TSB {tsb} < -30 with HRV {hrv_delta_pct}% below baseline")
+        
+        # RI < 0.7 + persistent tier-1 alerts
+        tier1_persistent = [a for a in alerts if a.get("tier") == 1 and (a.get("persistence_days") or 0) >= 2]
+        if ri is not None and ri < 0.7 and tier1_persistent:
+            persistent_metrics = [a["metric"] for a in tier1_persistent]
+            p1_skip_reasons.append(f"RI {ri} < 0.7 with persistent alerts: {', '.join(persistent_metrics)}")
+        
+        if p1_skip_reasons:
+            return {
+                "recommendation": "skip",
+                "priority": 1,
+                "signals": signals,
+                "signal_summary": signal_summary,
+                "phase_context": {
+                    "phase": current_phase,
+                    "phase_week": phase_duration,
+                    "amber_threshold": modifiers["amber_threshold"],
+                    "modifier_applied": modifiers["modifier_applied"]
+                },
+                "race_week_defers": False,
+                "modification": None,
+                "reason": f"P1 acute overload. {'; '.join(p1_skip_reasons)}.",
+                "alarm_refs": [a["metric"] for a in tier1_persistent]
+            }
+        
+        # P1 modify tier (sub-skip thresholds)
+        if acwr is not None and acwr > 1.3:
+            p1_modify_reasons.append(f"ACWR {acwr} > 1.3")
+        if tsb is not None and tsb < -25 and hrv_delta_pct is not None and hrv_delta_pct < -10:
+            p1_modify_reasons.append(f"TSB {tsb} < -25 with HRV {hrv_delta_pct}% below baseline")
+        
+        if p1_modify_reasons:
+            return {
+                "recommendation": "modify",
+                "priority": 1,
+                "signals": signals,
+                "signal_summary": signal_summary,
+                "phase_context": {
+                    "phase": current_phase,
+                    "phase_week": phase_duration,
+                    "amber_threshold": modifiers["amber_threshold"],
+                    "modifier_applied": modifiers["modifier_applied"]
+                },
+                "race_week_defers": race_week_active,
+                "modification": self._build_modification(["acwr"] if acwr and acwr > 1.3 else amber_signals),
+                "reason": f"P1 acute overload (modify). {'; '.join(p1_modify_reasons)}.",
+                "alarm_refs": []
+            }
+        
+        # --- P2: Accumulated fatigue (signal counting) ---
+        # Phase-adjusted TSB signal (override default if phase shifts threshold)
+        tsb_amber_threshold = modifiers["tsb_amber"]
+        if tsb is not None:
+            if tsb < -30:
+                signals["tsb"] = {"status": "red", "value": round(tsb, 1)}
+            elif tsb < tsb_amber_threshold:
+                signals["tsb"] = {"status": "amber", "value": round(tsb, 1)}
+            else:
+                signals["tsb"] = {"status": "green", "value": round(tsb, 1)}
+        else:
+            signals["tsb"] = {"status": "unavailable", "value": None}
+        
+        # Recount after TSB added
+        amber_count = sum(1 for s in signals.values() if s["status"] == "amber")
+        red_count = sum(1 for s in signals.values() if s["status"] == "red")
+        green_count = sum(1 for s in signals.values() if s["status"] == "green")
+        unavailable_count = sum(1 for s in signals.values() if s["status"] == "unavailable")
+        signal_summary = {"green": green_count, "amber": amber_count, "red": red_count, "unavailable": unavailable_count}
+        amber_signals = [k for k, v in signals.items() if v["status"] == "amber"]
+        red_signals = [k for k, v in signals.items() if v["status"] == "red"]
+        
+        # Red signal handling
+        if red_count >= 2 or (red_count >= 1 and modifiers["tighten_red"]):
+            triggers = red_signals + amber_signals
+            return {
+                "recommendation": "skip" if red_count >= 2 else "modify",
+                "priority": 2,
+                "signals": signals,
+                "signal_summary": signal_summary,
+                "phase_context": {
+                    "phase": current_phase,
+                    "phase_week": phase_duration,
+                    "amber_threshold": modifiers["amber_threshold"],
+                    "modifier_applied": modifiers["modifier_applied"]
+                },
+                "race_week_defers": race_week_active and red_count < 2,
+                "modification": self._build_modification(triggers) if red_count < 2 else None,
+                "reason": f"P2 signal count. {red_count} red ({', '.join(red_signals)}), {amber_count} amber ({', '.join(amber_signals)}).",
+                "alarm_refs": []
+            }
+        
+        if red_count >= 1:
+            # Single red (not tightened phase) = modify
+            triggers = red_signals + amber_signals
+            return {
+                "recommendation": "modify",
+                "priority": 2,
+                "signals": signals,
+                "signal_summary": signal_summary,
+                "phase_context": {
+                    "phase": current_phase,
+                    "phase_week": phase_duration,
+                    "amber_threshold": modifiers["amber_threshold"],
+                    "modifier_applied": modifiers["modifier_applied"]
+                },
+                "race_week_defers": race_week_active,
+                "modification": self._build_modification(triggers),
+                "reason": f"P2 signal count. 1 red ({', '.join(red_signals)}), {amber_count} amber ({', '.join(amber_signals)}).",
+                "alarm_refs": []
+            }
+        
+        # Amber threshold check
+        if amber_count >= modifiers["amber_threshold"]:
+            return {
+                "recommendation": "modify",
+                "priority": 2,
+                "signals": signals,
+                "signal_summary": signal_summary,
+                "phase_context": {
+                    "phase": current_phase,
+                    "phase_week": phase_duration,
+                    "amber_threshold": modifiers["amber_threshold"],
+                    "modifier_applied": modifiers["modifier_applied"]
+                },
+                "race_week_defers": race_week_active,
+                "modification": self._build_modification(amber_signals),
+                "reason": f"P2 signal count. {amber_count} amber ({', '.join(amber_signals)}) >= threshold {modifiers['amber_threshold']}.",
+                "alarm_refs": []
+            }
+        
+        # --- P3: Green light ---
+        # Check data availability
+        available_count = green_count + amber_count + red_count
+        reason = f"P3 green light. {green_count} green, {amber_count} amber (threshold {modifiers['amber_threshold']}), {red_count} red."
+        if unavailable_count > 3:
+            reason += f" Note: {unavailable_count} signals unavailable — limited data."
+        
+        return {
+            "recommendation": "go",
+            "priority": 3,
+            "signals": signals,
+            "signal_summary": signal_summary,
+            "phase_context": {
+                "phase": current_phase,
+                "phase_week": phase_duration,
+                "amber_threshold": modifiers["amber_threshold"],
+                "modifier_applied": modifiers["modifier_applied"]
+            },
+            "race_week_defers": False,
+            "modification": None,
+            "reason": reason,
+            "alarm_refs": []
+        }
+    
+    def _build_modification(self, triggers: List[str]) -> Dict:
+        """Build structured modification guidance from trigger signals.
+        
+        Returns adjustment directions as data — AI writes the coaching language.
+        Trigger → adjustment mapping is deterministic.
+        """
+        if not triggers:
+            return {"triggers": [], "suggested_adjustments": {"intensity": "preserve", "volume": "preserve", "cap_zone": None}}
+        
+        # Determine adjustment directions based on trigger pattern
+        has_sleep = "sleep" in triggers
+        has_hrv = "hrv" in triggers
+        has_rhr = "rhr" in triggers
+        has_acwr = "acwr" in triggers
+        has_tsb = "tsb" in triggers
+        has_ri = "ri" in triggers
+        
+        autonomic = has_hrv or has_rhr or has_ri
+        load = has_acwr or has_tsb
+        multiple = len(triggers) >= 2
+        
+        # ACWR-driven: cap intensity, cut volume
+        if has_acwr:
+            return {"triggers": triggers, "suggested_adjustments": {"intensity": "reduce", "volume": "reduce", "cap_zone": "Z2"}}
+        
+        # Combined (2+ triggers): reduce both
+        if multiple:
+            return {"triggers": triggers, "suggested_adjustments": {"intensity": "reduce", "volume": "reduce", "cap_zone": None}}
+        
+        # Sleep-only: reduce volume, preserve intensity
+        if has_sleep and not autonomic and not load:
+            return {"triggers": triggers, "suggested_adjustments": {"intensity": "preserve", "volume": "reduce", "cap_zone": None}}
+        
+        # Autonomic-only (HRV/RHR/RI): reduce intensity, preserve volume
+        if autonomic and not has_sleep and not load:
+            return {"triggers": triggers, "suggested_adjustments": {"intensity": "reduce", "volume": "preserve", "cap_zone": None}}
+        
+        # TSB-only: reduce volume
+        if has_tsb and not autonomic and not has_sleep:
+            return {"triggers": triggers, "suggested_adjustments": {"intensity": "preserve", "volume": "reduce", "cap_zone": None}}
+        
+        # Fallback: reduce both
+        return {"triggers": triggers, "suggested_adjustments": {"intensity": "reduce", "volume": "reduce", "cap_zone": None}}
+    
     # === HISTORY GENERATION (v3.3.0) ===
     
     def _get_history_confidence(self) -> Dict:
         """
         Check history.json availability and return confidence metadata.
         """
-        history_path = self.script_dir / self.HISTORY_FILE
+        history_path = self.data_dir / self.HISTORY_FILE
         
         if history_path.exists():
             try:
@@ -2157,7 +3515,7 @@ class IntervalsSync:
         Refresh runs only on Sundays (6) or Mondays (0), in the first two runs
         after midnight (00:00 and 00:15 UTC).
         """
-        history_path = self.script_dir / self.HISTORY_FILE
+        history_path = self.data_dir / self.HISTORY_FILE
         
         # If history.json doesn't exist, ALWAYS generate (bypass time gate)
         if not history_path.exists():
@@ -2284,6 +3642,22 @@ class IntervalsSync:
         print("  Building 180-day weekly tier...")
         weekly_180d = self._build_weekly_tier(activities_by_date, wellness_by_date, days=180)
         
+        # === PHASE BACKFILL ===
+        # Retroactively classify phase for each weekly row using trailing 4-week window.
+        # Stream 2 (planned calendar) is unavailable for historical weeks — confidence is limited.
+        empty_race_cal = {"next_race": None, "all_races": [], "taper_alert": {"active": False}, "race_week": {"active": False}}
+        for i in range(len(weekly_180d)):
+            lookback = weekly_180d[max(0, i-3):i+1]
+            prev_phase = weekly_180d[i-1].get("phase_detected") if i > 0 else None
+            result = self._detect_phase_v2(
+                weekly_rows=lookback,
+                planned_workouts=[],
+                race_calendar=empty_race_cal,
+                previous_phase=prev_phase,
+                today=weekly_180d[i]["week_start"]
+            )
+            weekly_180d[i]["phase_detected"] = result["phase"]
+        
         # === MONTHLY TIERS ===
         monthly_tiers = {}
         for years in [1, 2, 3]:
@@ -2318,7 +3692,7 @@ class IntervalsSync:
         }
         
         # Save locally
-        history_path = self.script_dir / self.HISTORY_FILE
+        history_path = self.data_dir / self.HISTORY_FILE
         with open(history_path, 'w') as f:
             json.dump(history, f, indent=2, default=str)
         print(f"  ✅ history.json saved ({len(daily_90d)} daily, {len(weekly_180d)} weekly rows)")
@@ -2345,7 +3719,8 @@ class IntervalsSync:
             # Hard day detection via shared classifier (power + HR fallback)
             day_zones_by_basis = {}
             for a in day_activities:
-                zones, basis = self._get_activity_zones(a)
+                sf = self.SPORT_FAMILIES.get(a.get("type", ""), None)
+                zones, basis = self._get_activity_zones(a, sport_family=sf)
                 if zones and basis:
                     if basis not in day_zones_by_basis:
                         day_zones_by_basis[basis] = {}
@@ -2366,19 +3741,44 @@ class IntervalsSync:
                 "hrv": wellness.get("hrv"),
                 "rhr": wellness.get("restingHR"),
                 "sleep_hours": round(wellness.get("sleepSecs", 0) / 3600, 2) if wellness.get("sleepSecs") else None,
+                "sleep_formatted": self._format_duration(int(wellness.get("sleepSecs", 0)) // 60 * 60) if wellness.get("sleepSecs") else None,
                 "sleep_quality": wellness.get("sleepQuality"),
-                "feel": None,  # Not available in wellness, only in activities
+                "sleep_score": wellness.get("sleepScore"),
                 "weight_kg": wellness.get("weight"),
                 "is_hard_day": is_hard,
-                "intensity_basis": intensity_basis
+                "intensity_basis": intensity_basis,
+                # Subjective state (categorical 1-4, see wellness_field_scales in READ_THIS_FIRST)
+                "fatigue": wellness.get("fatigue"),
+                "soreness": wellness.get("soreness"),
+                "stress": wellness.get("stress"),
+                "mood": wellness.get("mood"),
+                "motivation": wellness.get("motivation"),
+                "injury": wellness.get("injury"),
+                "hydration": wellness.get("hydration"),
+                # Vitals
+                "spO2": wellness.get("spO2"),
+                "blood_glucose": wellness.get("bloodGlucose"),
+                "systolic": wellness.get("systolic"),
+                "diastolic": wellness.get("diastolic"),
+                "baevsky_si": wellness.get("baevskySI"),
+                "lactate": wellness.get("lactate"),
+                "respiration": wellness.get("respiration"),
+                # Body composition
+                "body_fat_pct": wellness.get("bodyFat"),
+                "abdomen_cm": wellness.get("abdomen"),
+                # Lifestyle / nutrition
+                "steps": wellness.get("steps"),
+                "hydration_volume_l": wellness.get("hydrationVolume"),
+                "kcal_consumed": wellness.get("kcalConsumed"),
+                "carbohydrates_g": wellness.get("carbohydrates"),
+                "protein_g": wellness.get("protein"),
+                "fat_g": wellness.get("fatTotal"),
+                # Cycle
+                "menstrual_phase": wellness.get("menstrualPhase"),
+                "menstrual_phase_predicted": wellness.get("menstrualPhasePredicted"),
+                # Platform
+                "readiness": wellness.get("readiness")
             })
-            
-            # Check feel from activities
-            for a in day_activities:
-                feel = a.get("feel")
-                if feel:
-                    rows[-1]["feel"] = feel
-                    break
         
         return rows
     
@@ -2390,10 +3790,11 @@ class IntervalsSync:
         
         # Calculate weeks
         start_date = now - timedelta(days=days)
-        # Align to Monday
-        start_monday = start_date - timedelta(days=start_date.weekday())
+        # Align to configured week start day
+        days_since_week_start = (start_date.weekday() - self.week_start_day) % 7
+        start_aligned = start_date - timedelta(days=days_since_week_start)
         
-        current = start_monday
+        current = start_aligned
         while current < now:
             week_end = current + timedelta(days=6)
             if week_end > now:
@@ -2406,8 +3807,11 @@ class IntervalsSync:
             week_rhr = []
             week_sleep = []
             week_feel = []
+            week_rpe = []
             week_weight = []
             hard_days = 0
+            daily_tss_list = []
+            intensity_basis_counts = {"power": 0, "hr": 0}
             longest_ride = 0
             z1_z2_time = 0
             z3_time = 0
@@ -2417,6 +3821,7 @@ class IntervalsSync:
             atl_end = None
             tsb_end = None
             ramp_rate = None
+            sport_tss = defaultdict(float)
             
             for d in range(7):
                 date = current + timedelta(days=d)
@@ -2433,6 +3838,7 @@ class IntervalsSync:
                 week_tss += day_tss
                 week_seconds += day_seconds
                 week_activities += len(day_activities)
+                daily_tss_list.append(day_tss)
 
                 if self._is_valid_hrv(wellness.get("hrv")):
                     week_hrv.append(wellness["hrv"])
@@ -2454,7 +3860,11 @@ class IntervalsSync:
                     if ride_seconds > longest_ride:
                         longest_ride = ride_seconds
                     
-                    zones, basis = self._get_activity_zones(a)
+                    sf = self.SPORT_FAMILIES.get(a.get("type", ""), None)
+                    a_tss = a.get("icu_training_load", 0) or 0
+                    if a_tss > 0 and sf:
+                        sport_tss[sf] += a_tss
+                    zones, basis = self._get_activity_zones(a, sport_family=sf)
                     if zones and basis:
                         # Accumulate for hard day classification (separate by basis)
                         if basis not in day_zones_by_basis:
@@ -2473,20 +3883,44 @@ class IntervalsSync:
                             total_zone_time += secs
                     
                     feel = a.get("feel")
-                    if feel:
+                    if feel is not None:
                         week_feel.append(feel)
+                    rpe = a.get("icu_rpe")
+                    if rpe is not None:
+                        week_rpe.append(rpe)
                 
-                is_hard, _basis = self._classify_hard_day(day_zones_by_basis)
+                is_hard, hard_basis = self._classify_hard_day(day_zones_by_basis)
                 if is_hard:
                     hard_days += 1
+                    if hard_basis in ("power", "hr"):
+                        intensity_basis_counts[hard_basis] += 1
             
             if ctl_end and atl_end:
                 tsb_end = round(ctl_end - atl_end, 1)
+            
+            # Monotony: mean(daily_tss) / stdev(daily_tss) — Foster (1998)
+            # Requires 5+ days for meaningful value; partial weeks produce garbage
+            # (e.g., 2 similar days → near-zero stdev → monotony 40+)
+            week_monotony = None
+            days_with_data = sum(1 for t in daily_tss_list if t > 0)
+            if len(daily_tss_list) >= 5 and days_with_data >= 3:
+                try:
+                    m = statistics.mean(daily_tss_list)
+                    s = statistics.stdev(daily_tss_list)
+                    week_monotony = round(m / s, 2) if s > 0 else None
+                except Exception:
+                    week_monotony = None
+            
+            week_primary_sport = max(sport_tss, key=sport_tss.get) if sport_tss else None
+            week_primary_sport_tss = round(sport_tss[week_primary_sport], 0) if week_primary_sport else None
             
             rows.append({
                 "week_start": current.strftime("%Y-%m-%d"),
                 "total_hours": round(week_seconds / 3600, 2),
                 "total_tss": round(week_tss, 0),
+                "primary_sport": week_primary_sport,
+                "primary_sport_tss": week_primary_sport_tss,
+                "sport_tss_breakdown": {k: round(v, 0) for k, v in sport_tss.items()} if sport_tss else None,
                 "activity_count": week_activities,
                 "ctl_end": round(ctl_end, 1) if ctl_end else None,
                 "atl_end": round(atl_end, 1) if atl_end else None,
@@ -2501,10 +3935,29 @@ class IntervalsSync:
                 "hard_days": hard_days,
                 "longest_ride_hours": round(longest_ride / 3600, 2),
                 "avg_feel": round(statistics.mean(week_feel), 1) if week_feel else None,
-                "weight_kg": round(week_weight[-1], 1) if week_weight else None
+                "feel_count": len(week_feel) if week_feel else 0,
+                "avg_rpe": round(statistics.mean(week_rpe), 1) if week_rpe else None,
+                "rpe_count": len(week_rpe) if week_rpe else 0,
+                "weight_kg": round(week_weight[-1], 1) if week_weight else None,
+                "monotony": week_monotony,
+                "intensity_basis_breakdown": intensity_basis_counts if hard_days > 0 else None,
+                "acwr": None,  # computed in post-pass below
+                "phase_detected": None  # populated by _detect_phase_v2
             })
             
             current += timedelta(days=7)
+        
+        # Post-pass: compute per-week ACWR
+        # ACWR = this week's avg daily TSS / prior 3 weeks' avg daily TSS
+        for i, row in enumerate(rows):
+            if i < 3:
+                # Not enough prior weeks for chronic load
+                continue
+            acute = row["total_tss"] / 7 if row["total_tss"] else 0
+            chronic_tss = sum(rows[j]["total_tss"] or 0 for j in range(i - 3, i))
+            chronic = chronic_tss / 21 if chronic_tss else 0
+            if chronic > 0:
+                row["acwr"] = round(acute / chronic, 2)
         
         return rows
     
@@ -2577,7 +4030,8 @@ class IntervalsSync:
                     if ride_seconds > longest_ride:
                         longest_ride = ride_seconds
                     
-                    zones, basis = self._get_activity_zones(a)
+                    sf = self.SPORT_FAMILIES.get(a.get("type", ""), None)
+                    zones, basis = self._get_activity_zones(a, sport_family=sf)
                     if zones and basis:
                         # Accumulate for hard day classification (separate by basis)
                         if basis not in day_zones_by_basis:
@@ -2798,17 +4252,10 @@ class IntervalsSync:
     
     def check_upstream_updates(self):
         """
-        Check CrankAddict/section-11 for new releases and create a GitHub Issue
-        if there's a new notification_id.
+        Check CrankAddict/section-11 for new releases and create a GitHub Issue.
         
-        Uses date-based changelog format:
-        {
-            "notification_id": "2026-02-11",
-            "changes": [
-                "SECTION_11.md - UPDATE - 2026-02-11 - Description",
-                "sync.py - UPDATE - 2026-02-11 - Description"
-            ]
-        }
+        Tries manifest.json first (version-based comparison). Falls back to
+        changelog.json (notification_id-based) if manifest.json is not available.
         """
         if not self.github_token or not self.github_repo:
             if self.debug:
@@ -2820,7 +4267,47 @@ class IntervalsSync:
             "Accept": "application/vnd.github+json"
         }
         
-        # Fetch changelog.json from upstream
+        # GitHub Issues use changelog.json for human-readable release notes
+        # (manifest.json is for local --update only)
+        self._check_updates_via_changelog(headers)
+    
+    def _check_updates_via_manifest(self, manifest, headers):
+        """Create a GitHub Issue if manifest file hashes have changed."""
+        files = manifest.get("files", {})
+        
+        # Generate deterministic fingerprint from sorted path:hash pairs
+        hash_pairs = sorted(f"{k}:{v.get('hash', '?')}" for k, v in files.items())
+        fingerprint = "|".join(hash_pairs)
+        
+        # Use a short hash for the issue title
+        fp_hash = hashlib.md5(fingerprint.encode()).hexdigest()[:8]
+        issue_title = f"Section 11 updates — {fp_hash}"
+        
+        # Check if issue already exists
+        if self._issue_exists(issue_title, headers):
+            if self.debug:
+                print(f"  Update notification already exists: {issue_title}")
+            return
+        
+        # Build issue body
+        body = "## Section 11 Update Available\n\n"
+        body += "### Tracked files:\n"
+        for path in sorted(files.keys()):
+            info = files[path]
+            desc = info.get("description", "")
+            desc_str = f" — {desc}" if desc else ""
+            body += f"- **{path}**{desc_str}\n"
+        body += f"\n### Repository:\n"
+        body += f"https://github.com/{self.UPSTREAM_REPO}\n"
+        body += f"\n### Update instructions:\n"
+        body += f"- **Local users:** `python section11/examples/sync.py --update`\n"
+        body += f"- **GitHub users:** download the latest files from the repository\n"
+        body += f"\n*This issue was auto-created by sync.py v{self.VERSION}*"
+        
+        self._create_issue(issue_title, body, headers)
+    
+    def _check_updates_via_changelog(self, headers):
+        """Legacy: Create a GitHub Issue from changelog.json notification_id."""
         try:
             url = f"https://raw.githubusercontent.com/{self.UPSTREAM_REPO}/main/{self.CHANGELOG_FILE}"
             response = requests.get(url, timeout=10)
@@ -2843,26 +4330,12 @@ class IntervalsSync:
         
         issue_title = f"Section 11 updates — {notification_id}"
         
-        # Check if issue already exists (open or closed)
-        try:
-            search_url = f"{self.GITHUB_API_URL}/search/issues"
-            search_params = {
-                "q": f'repo:{self.github_repo} "{issue_title}" in:title'
-            }
-            response = requests.get(search_url, headers=headers, params=search_params, timeout=10)
-            
-            if response.status_code == 200:
-                results = response.json()
-                if results.get("total_count", 0) > 0:
-                    if self.debug:
-                        print(f"  Update notification already exists: {issue_title}")
-                    return
-        except Exception as e:
+        if self._issue_exists(issue_title, headers):
             if self.debug:
-                print(f"  Could not search issues: {e}")
+                print(f"  Update notification already exists: {issue_title}")
             return
         
-        # Create new issue
+        # Build issue body
         changes = changelog.get("changes", [])
         body = f"## Section 11 Update Available\n\n"
         body += f"**Notification ID:** {notification_id}\n\n"
@@ -2873,17 +4346,38 @@ class IntervalsSync:
         body += f"https://github.com/{self.UPSTREAM_REPO}\n"
         body += f"\n*This issue was auto-created by sync.py v{self.VERSION}*"
         
+        self._create_issue(issue_title, body, headers)
+    
+    def _issue_exists(self, title, headers):
+        """Check if a GitHub Issue with this title already exists."""
+        try:
+            search_url = f"{self.GITHUB_API_URL}/search/issues"
+            search_params = {
+                "q": f'repo:{self.github_repo} "{title}" in:title'
+            }
+            response = requests.get(search_url, headers=headers, params=search_params, timeout=10)
+            
+            if response.status_code == 200:
+                results = response.json()
+                return results.get("total_count", 0) > 0
+        except Exception as e:
+            if self.debug:
+                print(f"  Could not search issues: {e}")
+        return False
+    
+    def _create_issue(self, title, body, headers):
+        """Create a GitHub Issue."""
         try:
             issues_url = f"{self.GITHUB_API_URL}/repos/{self.github_repo}/issues"
             payload = {
-                "title": issue_title,
+                "title": title,
                 "body": body,
                 "labels": ["update-notification"]
             }
             response = requests.post(issues_url, headers=headers, json=payload, timeout=10)
             
             if response.status_code == 201:
-                print(f"  📢 Update notification created: {issue_title}")
+                print(f"  📢 Update notification created: {title}")
             else:
                 if self.debug:
                     print(f"  Could not create issue (HTTP {response.status_code}): {response.text}")
@@ -2891,8 +4385,10 @@ class IntervalsSync:
             if self.debug:
                 print(f"  Could not create update issue: {e}")
     
-    def _format_activities(self, activities: List[Dict], anonymize: bool = False) -> List[Dict]:
+    def _format_activities(self, activities: List[Dict], anonymize: bool = False, interval_activity_ids: set = None) -> List[Dict]:
         """Format activities for LLM analysis"""
+        interval_activity_ids = interval_activity_ids or set()
+        chat_notes_cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         formatted = []
         for i, act in enumerate(activities):
             avg_power = (act.get("average_watts") or act.get("avg_watts") or 
@@ -2963,15 +4459,13 @@ class IntervalsSync:
                 if act.get("type", "") in self.OUTDOOR_TYPES:
                     activity_name = "Training Session"
             
-            # Get calendar context
-            date_str = act.get("start_date_local", "unknown")
-            days_from_now, day_of_week = self._enrich_date_context(date_str)
-
+            raw_hrrc = act.get("icu_hrr")
+            if isinstance(raw_hrrc, dict):
+                raw_hrrc = raw_hrrc.get("value") or raw_hrrc.get("hrr")
+            
             activity = {
-                "id": f"activity_{i+1}" if anonymize else act.get("id", f"unknown_{i+1}"),
-                "date": date_str,
-                "days_from_now": days_from_now,
-                "day_of_week": day_of_week,
+                "id": act.get("id", f"unknown_{i+1}"),
+                "date": act.get("start_date_local", "unknown"),
                 "type": act.get("type", "Unknown"),
                 "name": activity_name,
                 "duration_hours": round((act.get("moving_time") or 0) / 3600, 2),
@@ -2997,11 +4491,38 @@ class IntervalsSync:
                 "variability_index": variability_index,
                 "decoupling": decoupling,
                 "efficiency_factor": act.get("icu_efficiency_factor"),
+                "hrrc": raw_hrrc,
                 "elevation_m": act.get("total_elevation_gain"),
                 "feel": act.get("feel"),
                 "rpe": act.get("icu_rpe"),
-                "zone_distribution": zone_dist
+                "zone_distribution": zone_dist,
+                "has_intervals": act.get("id", f"unknown_{i+1}") in interval_activity_ids
             }
+
+            # Pass through full description + extract NOTE: lines for push.py round-trip (v3.84)
+            raw_desc = act.get("description") or ""
+            if raw_desc.strip():
+                activity["description"] = raw_desc.strip()
+                coach_notes = []
+                for line in raw_desc.split("\n"):
+                    stripped = line.strip()
+                    if stripped.upper().startswith("NOTE:"):
+                        note_text = stripped[5:].strip()
+                        if note_text:
+                            coach_notes.append(note_text)
+                    elif stripped:
+                        break  # NOTE: lines only extracted from top of description
+                if coach_notes:
+                    activity["coach_notes"] = coach_notes
+
+            # Fetch activity chat messages for recent activities (v3.84 — unconditional, 7-day window)
+            act_date = act.get("start_date_local", "")[:10]
+            if act_date >= chat_notes_cutoff:
+                activity_id = act.get("id")
+                if activity_id:
+                    notes = self._get_activity_messages(activity_id)
+                    if notes:
+                        activity["chat_notes"] = notes
             
             formatted.append(activity)
         
@@ -3013,46 +4534,613 @@ class IntervalsSync:
         for w in wellness:
             entry = {
                 "date": w.get("id", "unknown"),
+                # Core metrics
                 "weight_kg": w.get("weight"),
                 "resting_hr": w.get("restingHR"),
                 "hrv_rmssd": w.get("hrv"),
-                "hrv_sdnn": w.get("hrvSdnn"),
+                "hrv_sdnn": w.get("hrvSDNN"),
                 "sleep_hours": round(w["sleepSecs"] / 3600, 2) if w.get("sleepSecs") else None,
+                "sleep_formatted": self._format_duration(int(w["sleepSecs"]) // 60 * 60) if w.get("sleepSecs") else None,
                 "sleep_quality": w.get("sleepQuality"),
                 "sleep_score": w.get("sleepScore"),
                 "mental_energy": w.get("mentalEnergy"),
+                "avg_sleeping_hr": w.get("avgSleepingHR"),
+                "vo2max": w.get("vo2max"),
+                # Subjective state (categorical 1-4, see wellness_field_scales in READ_THIS_FIRST)
                 "fatigue": w.get("fatigue"),
                 "soreness": w.get("soreness"),
-                "avg_sleeping_hr": w.get("avgSleepingHR"),
-                "vo2max": w.get("vo2max")
+                "stress": w.get("stress"),
+                "mood": w.get("mood"),
+                "motivation": w.get("motivation"),
+                "injury": w.get("injury"),
+                "hydration": w.get("hydration"),
+                # Vitals
+                "spO2": w.get("spO2"),
+                "blood_glucose": w.get("bloodGlucose"),
+                "systolic": w.get("systolic"),
+                "diastolic": w.get("diastolic"),
+                "baevsky_si": w.get("baevskySI"),
+                "lactate": w.get("lactate"),
+                "respiration": w.get("respiration"),
+                # Body composition
+                "body_fat_pct": w.get("bodyFat"),
+                "abdomen_cm": w.get("abdomen"),
+                # Lifestyle / nutrition
+                "steps": w.get("steps"),
+                "hydration_volume_l": w.get("hydrationVolume"),
+                "kcal_consumed": w.get("kcalConsumed"),
+                "carbohydrates_g": w.get("carbohydrates"),
+                "protein_g": w.get("protein"),
+                "fat_g": w.get("fatTotal"),
+                # Cycle
+                "menstrual_phase": w.get("menstrualPhase"),
+                "menstrual_phase_predicted": w.get("menstrualPhasePredicted"),
+                # Platform
+                "readiness": w.get("readiness")
             }
             
             formatted.append(entry)
         
         return formatted
     
-    def _format_events(self, events: List[Dict], anonymize: bool = False) -> List[Dict]:
-        """Format planned workouts"""
-        formatted = []
+    def _summarize_workout_doc(self, workout_doc: Dict) -> str:
+        """
+        Summarize a structured workout_doc into a human-readable one-liner.
+        
+        Uses two deterministic patterns:
+          Pattern A: Explicit repeats (step has 'reps' + nested 'steps')
+          Pattern B: Flat alternating work/rest pairs (min 3 reps, strict guards)
+        
+        Returns summary string or None if workout doesn't match either pattern
+        or if workout_doc is missing/malformed. Never raises exceptions.
+        
+        Note: workout_doc availability depends on how the workout was created in
+        Intervals.icu. Workouts created via the builder will have it; imported or
+        manually typed workouts may not. When absent, raw description is preserved.
+        """
+        try:
+            if not workout_doc or not isinstance(workout_doc, dict):
+                return None
+            steps = workout_doc.get("steps")
+            if not steps or not isinstance(steps, list):
+                return None
+            
+            parts = []
+            for step in steps:
+                rendered = self._render_step(step)
+                if rendered:
+                    parts.append(rendered)
+            
+            if not parts:
+                return None
+            
+            # Check if any part is an interval summary (the whole point of this)
+            has_interval = any(
+                "×" in p or "sets" in p.lower() 
+                for p in parts
+            )
+            if not has_interval:
+                return None  # All flat steps — no wall-of-text problem, skip summary
+            
+            return self._merge_interval_blocks(parts)
+        except Exception:
+            return None
+    
+    def _merge_interval_blocks(self, parts: List[str]) -> str:
+        """
+        Merge consecutive identical interval blocks in summary parts.
+        
+        E.g., ["5×10s @700W / 3m rec", "5×10s @700W / 3m rec"] → ["2 × 5×10s @700W / 3m rec"]
+        
+        No WU/CD labeling — that's a coaching interpretation, not structural data.
+        Strict string equality only.
+        """
+        if not parts:
+            return ""
+        
+        result = []
+        i = 0
+        while i < len(parts):
+            current = parts[i]
+            count = 1
+            while i + count < len(parts) and parts[i + count] == current:
+                count += 1
+            if count > 1:
+                result.append(f"{count} × {current}")
+            else:
+                result.append(current)
+            i += count
+        
+        return " | ".join(result)
+    
+    def _render_step(self, step: Dict) -> str:
+        """Render a single workout_doc step. Returns string or None."""
+        try:
+            if not isinstance(step, dict):
+                return None
+            
+            # Pattern A: Explicit repeats
+            if "reps" in step and "steps" in step and isinstance(step["steps"], list):
+                return self._render_repeat_block(step)
+            
+            # Pattern B: Check later at block level (handled in _summarize_workout_doc 
+            # by scanning sequences). Individual flat steps just render simply.
+            return self._render_flat_step(step)
+        except Exception:
+            return None
+    
+    def _render_flat_step(self, step: Dict) -> str:
+        """Render a non-repeat step as 'duration @power'."""
+        try:
+            dur = step.get("duration")
+            if not dur or not isinstance(dur, (int, float)):
+                return None
+            
+            dur_str = self._format_duration(int(dur))
+            
+            # Get power target
+            power = step.get("_power") or step.get("power")
+            if power and isinstance(power, dict):
+                val = power.get("value")
+                if val is not None:
+                    return f"{dur_str} @{int(round(val))}W"
+            
+            # HR target
+            hr = step.get("_hr") or step.get("hr")
+            if hr and isinstance(hr, dict):
+                val = hr.get("value")
+                if val is not None:
+                    return f"{dur_str} @{int(round(val))}bpm"
+            
+            # Duration only (freeride, etc)
+            return f"{dur_str}"
+        except Exception:
+            return None
+    
+    def _render_repeat_block(self, step: Dict) -> str:
+        """
+        Render a repeat block (Pattern A).
+        
+        Handles:
+        - Simple: reps × (work + rest) → "N×dur @power / rest rec"
+        - With set recovery: first nested step is low-power rest, then alternating pairs
+        
+        Bails to None if nested structure has >3 unique step types or is too complex.
+        """
+        try:
+            reps = step.get("reps", 1)
+            nested = step.get("steps", [])
+            if not nested or not isinstance(nested, list):
+                return None
+            
+            # Simple case: 2 nested steps (work + rest)
+            if len(nested) == 2:
+                work, rest = nested[0], nested[1]
+                work_str = self._describe_work_step(work)
+                rest_str = self._describe_rest_duration(rest)
+                if work_str and rest_str:
+                    return f"{reps}×{work_str} / {rest_str} rec"
+                elif work_str:
+                    return f"{reps}×{work_str}"
+                return None
+            
+            # Check for alternating work/rest pattern inside nested steps
+            # (e.g., 30/15 sessions: set_recovery, then work, rest, work, rest...)
+            if len(nested) >= 3:
+                result = self._detect_alternating_in_nested(nested, reps)
+                if result:
+                    return result
+            
+            # Too complex — bail
+            return None
+        except Exception:
+            return None
+    
+    def _detect_alternating_in_nested(self, nested: List[Dict], outer_reps: int) -> str:
+        """
+        Detect alternating work/rest pairs inside a nested step list.
+        Used for 30/15-style sessions where the builder unrolls reps inside a set.
+        
+        Guards:
+        - Both work and rest must have numeric power targets
+        - All work targets within ±2W, all rest targets within ±2W
+        - All work durations equal, all rest durations equal (one tail exception allowed)
+        - Minimum 3 pairs
+        """
+        try:
+            # Check if first step is a set recovery (low power, before the main work)
+            set_rec = None
+            start_idx = 0
+            if len(nested) >= 5:  # need at least set_rec + 2 pairs
+                first = nested[0]
+                second = nested[1]
+                first_power = self._get_power(first)
+                second_power = self._get_power(second)
+                first_dur = first.get("duration", 0)
+                second_dur = second.get("duration", 0)
+                # Set recovery: longer duration, lower or equal power than work steps
+                if (first_power is not None and second_power is not None 
+                    and first_power <= second_power and first_dur > second_dur):
+                    set_rec = first
+                    start_idx = 1
+            
+            # Collect remaining steps as candidate pairs
+            remaining = nested[start_idx:]
+            if len(remaining) < 6:  # need at least 3 pairs
+                return None
+            
+            # Try to consume as (work, rest) pairs
+            pairs = []
+            i = 0
+            while i + 1 < len(remaining):
+                work = remaining[i]
+                rest = remaining[i + 1]
+                w_power = self._get_power(work)
+                r_power = self._get_power(rest)
+                w_dur = work.get("duration")
+                r_dur = rest.get("duration")
+                
+                if w_power is None or r_power is None or w_dur is None or r_dur is None:
+                    return None  # Can't compare — bail
+                w_power = int(round(w_power))
+                r_power = int(round(r_power))
+                if w_power <= r_power:
+                    return None  # Work should be harder than rest
+                if abs(w_power - r_power) < max(10, 0.05 * w_power):
+                    return None  # Targets must be meaningfully distinct
+                
+                pairs.append((w_dur, w_power, r_dur, r_power))
+                i += 2
+            
+            # Trailing solo work step: final rep with no rest (builder drops
+            # the last rest when it's followed by set recovery or cooldown).
+            has_trailing = False
+            if i == len(remaining) - 1:
+                trailing = remaining[i]
+                t_power = self._get_power(trailing)
+                t_dur = trailing.get("duration")
+                if (t_power is not None and t_dur is not None and pairs):
+                    ref_wd = pairs[0][0]
+                    ref_wp = pairs[0][1]
+                    if (t_dur == ref_wd and
+                            abs(int(round(t_power)) - ref_wp) <= 2):
+                        has_trailing = True
+            
+            if len(pairs) + (1 if has_trailing else 0) < 3:
+                return None
+            
+            # Consistency check (pairs only — trailing rep already validated above)
+            ref_w_dur, ref_w_power, ref_r_dur, ref_r_power = pairs[0]
+            for j, (wd, wp, rd, rp) in enumerate(pairs):
+                if wd != ref_w_dur:
+                    return None  # Work durations must match exactly
+                if abs(wp - ref_w_power) > 2:
+                    return None  # Work power within ±2W
+                if abs(rp - ref_r_power) > 2:
+                    return None  # Rest power within ±2W
+                # Rest duration: allow last pair to differ (tail exception)
+                if rd != ref_r_dur and j < len(pairs) - 1:
+                    return None
+            
+            # Build summary
+            n_reps = len(pairs) + (1 if has_trailing else 0)
+            work_dur_str = self._format_duration(ref_w_dur)
+            work_power = int(round(ref_w_power))
+            rest_dur_str = self._format_duration(ref_r_dur)
+            
+            inner = f"{n_reps}×{work_dur_str} @{work_power}W / {rest_dur_str} rec"
+            
+            if outer_reps > 1:
+                if set_rec:
+                    sr_dur = self._format_duration(set_rec.get("duration", 0))
+                    return f"{outer_reps} sets × {inner} ({sr_dur} set rec)"
+                return f"{outer_reps} sets × {inner}"
+            
+            if set_rec:
+                sr_dur = self._format_duration(set_rec.get("duration", 0))
+                return f"{inner} ({sr_dur} set rec)"
+            return inner
+        except Exception:
+            return None
+    
+    def _get_power(self, step: Dict) -> float:
+        """Extract resolved power value from a step. Returns float or None."""
+        try:
+            power = step.get("_power") or step.get("power")
+            if power and isinstance(power, dict):
+                val = power.get("value")
+                if val is not None:
+                    return float(val)
+            return None
+        except Exception:
+            return None
+    
+    def _describe_work_step(self, step: Dict) -> str:
+        """Describe a work step as 'dur @power'."""
+        try:
+            dur = step.get("duration")
+            if not dur:
+                return None
+            dur_str = self._format_duration(int(dur))
+            
+            power = self._get_power(step)
+            if power is not None:
+                return f"{dur_str} @{int(round(power))}W"
+            
+            hr = step.get("_hr") or step.get("hr")
+            if hr and isinstance(hr, dict):
+                val = hr.get("value")
+                if val is not None:
+                    return f"{dur_str} @{int(round(val))}bpm"
+            
+            return dur_str
+        except Exception:
+            return None
+    
+    def _describe_rest_duration(self, step: Dict) -> str:
+        """Describe a rest step duration."""
+        try:
+            dur = step.get("duration")
+            if not dur:
+                return None
+            return self._format_duration(int(dur))
+        except Exception:
+            return None
+    
+    @staticmethod
+    def _format_duration(seconds: int) -> str:
+        """Format seconds into human-readable duration (e.g., 300 → '5m', 90 → '1m30s')."""
+        if seconds <= 0:
+            return "0s"
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        secs = seconds % 60
+        
+        parts = []
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes:
+            parts.append(f"{minutes}m")
+        if secs:
+            parts.append(f"{secs}s")
+        return "".join(parts) if parts else "0s"
+    
+    def _detect_flat_alternating(self, workout_doc: Dict) -> str:
+        """
+        Pattern B: Detect flat alternating work/rest pairs in top-level steps.
+        
+        For workouts like sprint openers where intervals are unrolled without
+        repeat markers. Scans top-level steps for blocks of alternating high/low
+        power pairs separated by non-matching steps (warmup, cooldown, etc).
+        
+        Guards:
+        - Both work and rest must have numeric power targets (via _power or power)
+        - All work targets within ±2W, all rest targets within ±2W
+        - All work durations equal, all rest durations equal (one tail exception)
+        - Minimum 3 pairs per block
+        - Work power must be higher than rest power
+        """
+        try:
+            steps = workout_doc.get("steps")
+            if not steps or not isinstance(steps, list) or len(steps) < 6:
+                return None
+            
+            # Skip steps that are repeat blocks (already handled by Pattern A)
+            if any(s.get("reps") for s in steps if isinstance(s, dict)):
+                return None
+            
+            # Collect (duration, power) for each step
+            step_data = []
+            for s in steps:
+                if not isinstance(s, dict):
+                    return None
+                dur = s.get("duration")
+                power = self._get_power(s)
+                step_data.append((dur, power))
+            
+            # Try to find alternating blocks
+            # Strategy: scan for regions where pairs repeat
+            parts = []
+            i = 0
+            while i < len(step_data):
+                dur_i, pow_i = step_data[i]
+                
+                # Try to start an alternating block at position i
+                if (i + 1 < len(step_data) 
+                    and dur_i is not None and pow_i is not None
+                    and step_data[i+1][0] is not None and step_data[i+1][1] is not None):
+                    
+                    block = self._try_alternating_block(step_data, i)
+                    if block:
+                        count, work_dur, work_power, rest_dur = block
+                        wd_str = self._format_duration(work_dur)
+                        rd_str = self._format_duration(rest_dur)
+                        parts.append(f"{count}×{wd_str} @{int(round(work_power))}W / {rd_str} rec")
+                        i += count * 2
+                        continue
+                
+                # Not part of an alternating block — render as flat step
+                if dur_i is not None:
+                    flat = self._render_flat_step(steps[i])
+                    if flat:
+                        parts.append(flat)
+                i += 1
+            
+            if not parts:
+                return None
+            
+            # Only return if we found at least one alternating block
+            has_block = any("×" in p for p in parts)
+            if not has_block:
+                return None
+            
+            return self._merge_interval_blocks(parts)
+        except Exception:
+            return None
+    
+    def _try_alternating_block(self, step_data: List, start: int) -> tuple:
+        """
+        Try to consume an alternating work/rest block starting at 'start'.
+        Returns (count, work_dur, work_power, rest_dur) or None.
+        """
+        try:
+            ref_w_dur, ref_w_power = step_data[start]
+            ref_r_dur, ref_r_power = step_data[start + 1]
+            
+            if ref_w_power is None or ref_r_power is None:
+                return None
+            # Normalize watts to ints before all comparisons
+            ref_w_power = int(round(ref_w_power))
+            ref_r_power = int(round(ref_r_power))
+            if ref_w_power <= ref_r_power:
+                return None  # Work must be harder than rest
+            if abs(ref_w_power - ref_r_power) < max(10, 0.05 * ref_w_power):
+                return None  # Targets must be meaningfully distinct
+            if ref_w_dur is None or ref_r_dur is None:
+                return None
+            
+            count = 1
+            j = start + 2
+            while j + 1 < len(step_data):
+                wd, wp = step_data[j]
+                rd, rp = step_data[j + 1]
+                
+                if wp is None or rp is None or wd is None or rd is None:
+                    break
+                wp = int(round(wp))
+                rp = int(round(rp))
+                if abs(wd - ref_w_dur) > 1:
+                    break  # Work duration tolerance ±1s
+                if abs(wp - ref_w_power) > 2:
+                    break
+                if abs(rp - ref_r_power) > 2:
+                    break
+                # Rest duration: allow tail exception on last pair
+                if abs(rd - ref_r_dur) > 2:
+                    # Long rest (≥1.5× normal) = set break — always consume as tail
+                    if rd >= ref_r_dur * 1.5:
+                        count += 1
+                        j += 2
+                        break
+                    # Otherwise check if more matching pairs follow
+                    if j + 3 < len(step_data):
+                        nwd, nwp = step_data[j + 2]
+                        if (nwd is not None and abs(nwd - ref_w_dur) <= 1 
+                            and nwp is not None and abs(int(round(nwp)) - ref_w_power) <= 2):
+                            break  # Not the last pair — strict fail
+                    count += 1
+                    j += 2
+                    break  # Tail exception consumed, stop
+                
+                count += 1
+                j += 2
+            
+            # Trailing solo work step: final rep with no paired rest
+            if j < len(step_data):
+                wd, wp = step_data[j]
+                if (wd is not None and wp is not None
+                        and abs(wd - ref_w_dur) <= 1
+                        and abs(int(round(wp)) - ref_w_power) <= 2):
+                    count += 1
+            
+            if count < 3:
+                return None
+            
+            return (count, ref_w_dur, ref_w_power, ref_r_dur)
+        except Exception:
+            return None
+    
+    def _format_events(self, events: List[Dict], anonymize: bool = False, today: str = None) -> List[Dict]:
+        """
+        Format planned workouts with workout_summary and tiered detail (v3.6.2).
+        
+        Tiering:
+        - Days 0-7: full output (description + workout_summary + all fields)
+        - Days 8-42: skeleton (name, date, type, TSS, duration, workout_summary).
+          If workout_summary is null, keeps description_preview (first 3 lines).
+        
+        Sets self._summary_stats with coverage telemetry.
+        """
+        if today is None:
+            today = datetime.now().strftime("%Y-%m-%d")
+        
+        day7_cutoff = (datetime.strptime(today, "%Y-%m-%d") + timedelta(days=7)).strftime("%Y-%m-%d")
+        
+        stats = {"attempted": 0, "success": 0, "patternA": 0, "patternB": 0,
+                 "bail_no_workout_doc": 0, "bail_no_match": 0}
+        
+        result = []
         for i, evt in enumerate(events):
-            # Get calendar context
-            date_str = evt.get("start_date_local", "unknown")
-            days_from_now, day_of_week = self._enrich_date_context(date_str)
+            evt_date = (evt.get("start_date_local") or "unknown")[:10]
+            is_near = evt_date <= day7_cutoff
+            
+            # Generate workout_summary from workout_doc
+            workout_doc = evt.get("workout_doc")
+            summary = None
+            
+            if workout_doc and isinstance(workout_doc, dict) and workout_doc.get("steps"):
+                stats["attempted"] += 1
+                summary = self._summarize_workout_doc(workout_doc)
+                if summary:
+                    stats["patternA"] += 1
+                else:
+                    # Try Pattern B (flat alternating)
+                    summary = self._detect_flat_alternating(workout_doc)
+                    if summary:
+                        stats["patternB"] += 1
+                    else:
+                        stats["bail_no_match"] += 1
+                if summary:
+                    stats["success"] += 1
+            elif (evt.get("description") or "").strip():
+                stats["bail_no_workout_doc"] += 1
 
-            event = {
-                "id": f"event_{i+1}" if anonymize else evt.get("id", f"unknown_{i+1}"),
-                "date": date_str,
-                "days_from_now": days_from_now,
-                "day_of_week": day_of_week,
-                "name": "Planned Workout" if anonymize else evt.get("name", ""),
+            # Parse NOTE: lines from description (v0.3 — coach annotations)
+            raw_desc = evt.get("description") or ""
+            coach_notes = []
+            clean_desc_lines = []
+            past_notes = False
+            for line in raw_desc.split("\n"):
+                stripped = line.strip()
+                if not past_notes and stripped.upper().startswith("NOTE:"):
+                    note_text = stripped[5:].strip()
+                    if note_text:
+                        coach_notes.append(note_text)
+                elif not past_notes and stripped == "":
+                    continue  # skip blank lines between NOTE: lines and workout
+                else:
+                    past_notes = True
+                    clean_desc_lines.append(line)
+            clean_desc = "\n".join(clean_desc_lines).strip()
+
+            entry = {
+                "id": evt.get("id", f"unknown_{i+1}"),
+                "date": evt_date,
+                "name": evt.get("name", ""),
                 "type": evt.get("category", ""),
-                "description": evt.get("description", ""),
+                "sport_type": evt.get("type", ""),
                 "planned_tss": evt.get("icu_training_load"),
-                "duration_hours": round(evt.get("duration", 0) / 3600, 2)
+                "duration_hours": round((evt.get("moving_time") or 0) / 3600, 2),
+                "duration_formatted": self._format_duration(int(evt.get("moving_time") or 0)),
+                "workout_summary": summary
             }
-            formatted.append(event)
 
-        return formatted
+            if coach_notes:
+                entry["coach_notes"] = coach_notes
+            
+            if is_near:
+                # Days 0-7: full detail
+                entry["description"] = clean_desc
+            else:
+                # Days 8-42: skeleton only
+                if summary is None:
+                    lines = [l.strip() for l in clean_desc.split("\n") if l.strip()][:3]
+                    entry["description_preview"] = "\n".join(lines) if lines else None
+            
+            result.append(entry)
+        
+        self._summary_stats = stats
+        return result
     
     def _build_race_calendar(self, future_events: List[Dict], current_ctl: float,
                               current_atl: float, current_tsb: float,
@@ -3422,6 +5510,7 @@ class IntervalsSync:
 
         return {
             "total_training_hours": round(total_hours, 2),
+            "total_training_formatted": self._format_duration(int(total_seconds) // 60 * 60),
             "total_tss": round(total_tss, 0),
             "activities_count": len(activities),
             "avg_hrv": avg_hrv,
@@ -3522,9 +5611,633 @@ class IntervalsSync:
         return filepath
 
 
+# === Local Setup & Update Helpers ===
+
+SECTION11_REPO_RAW = "https://raw.githubusercontent.com/CrankAddict/section-11/main"
+
+# Directories/files to exclude from manifest generation
+_MANIFEST_EXCLUDE_DIRS = {".git", ".github", "__pycache__", "node_modules"}
+_MANIFEST_EXCLUDE_FILES = {"manifest.json", ".DS_Store"}
+
+
+def _compute_file_hash(filepath):
+    """Compute SHA256 hash of a file. Returns hex digest string."""
+    h = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _fetch_upstream_manifest():
+    """Fetch manifest.json from the official Section 11 repo.
+    Returns manifest dict or None on failure. Caller handles errors."""
+    try:
+        response = requests.get(f"{SECTION11_REPO_RAW}/manifest.json", timeout=30)
+        response.raise_for_status()
+        manifest = response.json()
+        if manifest.get("files"):
+            return manifest
+        return None
+    except Exception:
+        return None
+
+
+def _compare_files(upstream_files, section11_dir):
+    """Compare upstream manifest hashes against local files in section11/.
+    Returns (needs_update, current) where each is a list of dicts.
+    Detects changed files (hash mismatch) and new files (missing locally)."""
+    needs_update = []
+    current = []
+    
+    for path, info in upstream_files.items():
+        upstream_hash = info.get("hash", "")
+        description = info.get("description", "")
+        local_path = section11_dir / path
+        
+        if not local_path.exists():
+            needs_update.append({
+                "path": path, "status": "new",
+                "description": description
+            })
+        else:
+            try:
+                local_hash = _compute_file_hash(local_path)
+            except Exception:
+                local_hash = ""
+            
+            if local_hash != upstream_hash:
+                needs_update.append({
+                    "path": path, "status": "changed",
+                    "description": description
+                })
+            else:
+                current.append({
+                    "path": path, "description": description
+                })
+    
+    return needs_update, current
+
+
+def _find_orphaned_files(upstream_files, section11_dir):
+    """Find local files inside section11/ that are no longer in the upstream manifest.
+    Returns a sorted list of relative path strings.
+    Excludes manifest.json (local-only), .tmp files, and hidden files/directories."""
+    manifest_paths = set(upstream_files.keys())
+    orphaned = []
+
+    for root, dirs, files in os.walk(section11_dir):
+        # Skip hidden directories (e.g. .git, .DS_Store folders)
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+
+        for fname in files:
+            # Skip hidden files, .tmp files, and manifest.json
+            if fname.startswith('.'):
+                continue
+            if fname.endswith('.tmp'):
+                continue
+
+            full_path = Path(root) / fname
+            rel_path = str(full_path.relative_to(section11_dir))
+
+            if rel_path == "manifest.json":
+                continue
+
+            if rel_path not in manifest_paths:
+                orphaned.append(rel_path)
+
+    return sorted(orphaned)
+
+
+def _find_empty_dirs(section11_dir):
+    """Find directories inside section11/ that contain no visible files or subdirectories.
+    Walks bottom-up so nested empty dirs are caught. Returns sorted list of relative path strings.
+    Skips hidden directories at the top level of the walk."""
+    empty_dirs = []
+
+    # Bottom-up walk so we catch nested empties
+    for root, dirs, files in os.walk(section11_dir, topdown=False):
+        rel_dir = Path(root).relative_to(section11_dir)
+
+        # Don't flag section11/ itself
+        if rel_dir == Path('.'):
+            continue
+
+        # Skip hidden directories
+        if any(part.startswith('.') for part in rel_dir.parts):
+            continue
+
+        # Visible files = non-hidden, non-.tmp
+        visible_files = [f for f in files if not f.startswith('.') and not f.endswith('.tmp')]
+        # Visible subdirs = non-hidden
+        visible_dirs = [d for d in dirs if not d.startswith('.')]
+
+        if not visible_files and not visible_dirs:
+            empty_dirs.append(str(rel_dir))
+
+    return sorted(empty_dirs)
+
+
+def do_generate_manifest():
+    """
+    Generate manifest.json from the current repo directory.
+    
+    Maintainer command — walks the repo, computes SHA256 hashes for all files,
+    and writes manifest.json. Preserves existing descriptions.
+    Run from the repo root before committing.
+    """
+    repo_dir = Path.cwd()
+    manifest_path = repo_dir / "manifest.json"
+    
+    # Load existing manifest to preserve descriptions
+    existing_descriptions = {}
+    if manifest_path.exists():
+        try:
+            with open(manifest_path, 'r') as f:
+                old_manifest = json.load(f)
+            for path, info in old_manifest.get("files", {}).items():
+                desc = info.get("description")
+                if desc:
+                    existing_descriptions[path] = desc
+        except Exception:
+            pass
+    
+    # Walk the repo and hash all files
+    files = {}
+    for root, dirs, filenames in os.walk(repo_dir):
+        # Exclude directories
+        dirs[:] = [d for d in dirs if d not in _MANIFEST_EXCLUDE_DIRS]
+        
+        for filename in filenames:
+            if filename in _MANIFEST_EXCLUDE_FILES:
+                continue
+            
+            filepath = Path(root) / filename
+            rel_path = filepath.relative_to(repo_dir).as_posix()
+            
+            # Skip hidden files
+            if any(part.startswith('.') for part in rel_path.split('/')):
+                continue
+            
+            try:
+                file_hash = _compute_file_hash(filepath)
+                entry = {"hash": file_hash}
+                
+                # Preserve existing description if present
+                if rel_path in existing_descriptions:
+                    entry["description"] = existing_descriptions[rel_path]
+                
+                files[rel_path] = entry
+            except Exception as e:
+                print(f"   ⚠️ Could not hash {rel_path}: {e}")
+    
+    # Sort by path for clean diffs
+    sorted_files = dict(sorted(files.items()))
+    
+    manifest = {
+        "scope": "All tracked files in the Section 11 repository. --update compares file hashes to detect changes and new files.",
+        "files": sorted_files
+    }
+    
+    with open(manifest_path, 'w') as f:
+        json.dump(manifest, f, indent=2)
+        f.write('\n')
+    
+    print(f"✅ manifest.json generated — {len(sorted_files)} files tracked")
+
+
+def do_init():
+    """
+    Download and extract the full Section 11 repo to section11/.
+    
+    Standalone function — does not require Intervals.icu credentials.
+    Downloads the repo as a zip from GitHub, extracts to section11/,
+    and removes the bootstrap sync.py as the last step.
+    """
+    data_dir = Path.cwd()
+    target_dir = data_dir / "section11"
+    
+    # Guard: already exists
+    if target_dir.exists():
+        print("Section 11: section11/ already exists in this directory")
+        print("   To update: python section11/examples/sync.py --update")
+        print("   To reinstall: delete section11/ and run --init again")
+        return
+    
+    # Download zip
+    zip_url = "https://github.com/CrankAddict/section-11/archive/refs/heads/main.zip"
+    print("📦 Downloading Section 11 repository...")
+    
+    try:
+        response = requests.get(zip_url, timeout=60)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Section 11: download failed — {e}")
+        print("   Alternative: git clone https://github.com/CrankAddict/section-11.git section11")
+        return
+    
+    print(f"   Downloaded ({len(response.content) // 1024}KB)")
+    
+    # Extract to temp directory first, then move (atomic)
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            zip_path = Path(tmp_dir) / "repo.zip"
+            with open(zip_path, 'wb') as f:
+                f.write(response.content)
+            
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(tmp_dir)
+            
+            # GitHub zips have a top-level folder like "section-11-main/"
+            extracted = [d for d in Path(tmp_dir).iterdir() 
+                        if d.is_dir() and d.name != '__MACOSX']
+            if len(extracted) != 1:
+                print(f"Section 11: unexpected zip structure — expected 1 directory, found {len(extracted)}")
+                return
+            
+            # Move extracted folder to section11/
+            shutil.move(str(extracted[0]), str(target_dir))
+    except Exception as e:
+        print(f"Section 11: extraction failed — {e}")
+        # Clean up partial extraction if it exists
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+        return
+    
+    print(f"   ✅ Extracted to section11/")
+    
+    # Delete bootstrap sync.py — LAST STEP, only after extraction fully succeeded
+    bootstrap_path = data_dir / "sync.py"
+    repo_sync = target_dir / "examples" / "sync.py"
+    bootstrap_removed = False
+    
+    if bootstrap_path.exists() and repo_sync.exists():
+        # Verify bootstrap isn't the repo copy (safety check)
+        try:
+            if bootstrap_path.resolve() != repo_sync.resolve():
+                bootstrap_path.unlink()
+                bootstrap_removed = True
+        except Exception as e:
+            print(f"   ⚠️ Could not remove bootstrap sync.py: {e}")
+    
+    # Final message
+    print(f"\n✅ Setup complete.")
+    print(f"   sync.py is now at: section11/examples/sync.py")
+    if bootstrap_removed:
+        print(f"   Bootstrap copy removed.")
+    print(f"\n   From now on, run:")
+    print(f"      python section11/examples/sync.py --output latest.json")
+
+
+def do_update():
+    """
+    Check for updates and pull changed files from the official Section 11 repo.
+    
+    Standalone function — does not require Intervals.icu credentials.
+    Fetches manifest.json from GitHub, compares file hashes against local copies
+    in section11/, and downloads only changed or new files after confirmation.
+    """
+    data_dir = Path.cwd()
+    target_dir = data_dir / "section11"
+    
+    # Guard: section11/ must exist
+    if not target_dir.exists():
+        print("Section 11: section11/ not found in this directory")
+        print("   Run --init first to set up the local data directory")
+        return
+    
+    # Fetch manifest.json from upstream
+    print("🔍 Checking for Section 11 updates...")
+    manifest = _fetch_upstream_manifest()
+    if not manifest:
+        print("Section 11: could not fetch manifest from GitHub")
+        return
+    
+    upstream_files = manifest.get("files", {})
+    
+    # Compare hashes against local files
+    needs_update, current = _compare_files(upstream_files, target_dir)
+    
+    # Show updates or all-current message
+    if not needs_update:
+        print(f"✅ All {len(current)} files are current")
+    else:
+        # Show diff table
+        print(f"\n   Updates available ({len(needs_update)} file{'s' if len(needs_update) != 1 else ''}):\n")
+
+        # Calculate column widths for alignment
+        path_width = max(len(u["path"]) for u in needs_update)
+
+        for u in needs_update:
+            path_padded = u["path"].ljust(path_width)
+            desc = f"   {u['description']}" if u.get('description') else ""
+            print(f"   {path_padded}  [{u['status']}]{desc}")
+
+        if current:
+            print(f"\n   Already current ({len(current)}):\n")
+            for c in current[:10]:  # Show first 10 to avoid wall of text
+                print(f"   ✅ {c['path']}")
+            if len(current) > 10:
+                print(f"   ... and {len(current) - 10} more")
+
+        # Ask for confirmation
+        print()
+        try:
+            answer = input(f"   Pull {len(needs_update)} update{'s' if len(needs_update) != 1 else ''}? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n   Cancelled")
+            return
+
+        if answer not in ("y", "yes"):
+            print("   Cancelled")
+            return
+
+        # Download changed files
+        print()
+        updated = []
+        failed = []
+
+        for u in needs_update:
+            file_url = f"{SECTION11_REPO_RAW}/{u['path']}"
+            target_path = target_dir / u["path"]
+
+            try:
+                resp = requests.get(file_url, timeout=30)
+                resp.raise_for_status()
+
+                # Ensure target directory exists (for new files in new directories)
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Write to temp file, then atomic replace
+                tmp_path = target_path.with_suffix(target_path.suffix + ".tmp")
+                with open(tmp_path, 'wb') as f:
+                    f.write(resp.content)
+                os.replace(str(tmp_path), str(target_path))
+
+                updated.append(u)
+                print(f"   ✅ {u['path']}  [{u['status']}]")
+            except Exception as e:
+                failed.append(u)
+                print(f"   ❌ {u['path']}  failed: {e}")
+                # Clean up temp file if it exists
+                tmp_path = target_path.with_suffix(target_path.suffix + ".tmp")
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except Exception:
+                        pass
+
+        # Save updated manifest.json to section11/
+        try:
+            manifest_target = target_dir / "manifest.json"
+            tmp_manifest = manifest_target.with_suffix(".json.tmp")
+            with open(tmp_manifest, 'w') as f:
+                json.dump(manifest, f, indent=2)
+            os.replace(str(tmp_manifest), str(manifest_target))
+        except Exception as e:
+            print(f"   ⚠️ Could not save manifest.json locally: {e}")
+
+        # Summary
+        if failed:
+            print(f"\n   Updated {len(updated)} file{'s' if len(updated) != 1 else ''}, {len(failed)} failed")
+        elif updated:
+            print(f"\n   ✅ {len(updated)} file{'s' if len(updated) != 1 else ''} updated")
+
+    # --- Orphan cleanup (runs regardless of whether files were updated) ---
+    orphaned_files = _find_orphaned_files(upstream_files, target_dir)
+    empty_dirs = _find_empty_dirs(target_dir)
+
+    if orphaned_files or empty_dirs:
+        total = len(orphaned_files) + len(empty_dirs)
+        print(f"\n   Orphaned items ({total} — not in repo):\n")
+
+        # Build display list with tags
+        all_items = [(p, "[removed from repo]") for p in orphaned_files]
+        all_items += [(d + "/", "[empty directory]") for d in empty_dirs]
+
+        path_width = max(len(item[0]) for item in all_items)
+        for name, tag in all_items:
+            print(f"   {name.ljust(path_width)}  {tag}")
+
+        print()
+        try:
+            answer = input(f"   Remove {total} orphaned item{'s' if total != 1 else ''}? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n   Skipped")
+            return
+
+        if answer not in ("y", "yes"):
+            print("   Skipped")
+            return
+
+        removed = 0
+
+        # Delete orphaned files first
+        for p in orphaned_files:
+            full_path = target_dir / p
+            try:
+                full_path.unlink()
+                removed += 1
+                print(f"   🗑️  {p}")
+            except Exception as e:
+                print(f"   ❌ {p}  failed: {e}")
+
+        # Remove empty parent directories left behind by file deletions
+        for p in orphaned_files:
+            parent = (target_dir / p).parent
+            while parent != target_dir:
+                try:
+                    parent.rmdir()  # Only succeeds if empty
+                    print(f"   🗑️  {parent.relative_to(target_dir)}/  [empty directory]")
+                except OSError:
+                    break
+                parent = parent.parent
+
+        # Remove standalone empty directories (sorted deepest-first to handle nesting)
+        for d in sorted(empty_dirs, key=lambda x: x.count(os.sep), reverse=True):
+            dir_path = target_dir / d
+            try:
+                if dir_path.exists():
+                    dir_path.rmdir()
+                    removed += 1
+                    print(f"   🗑️  {d}/")
+            except OSError as e:
+                print(f"   ❌ {d}/  failed: {e}")
+
+        if removed:
+            print(f"\n   🗑️  {removed} orphaned item{'s' if removed != 1 else ''} removed")
+
+
+def notify_if_updates_available():
+    """
+    Silent, rate-limited check for Section 11 updates during normal sync runs.
+    
+    Runs at most once per 24 hours. Fetches manifest.json from upstream,
+    compares file hashes against local section11/ files, prints a one-line
+    notification if updates are available. Completely silent on any failure —
+    this must never interrupt a sync run.
+    """
+    try:
+        config_path = Path.cwd() / ".sync_config.json"
+        section11_dir = Path.cwd() / "section11"
+        
+        # Only relevant for local setups with section11/
+        if not section11_dir.exists():
+            return
+        
+        # Load config for rate limiting
+        config = {}
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+        
+        # Rate limit: once per 24 hours
+        last_check = config.get("last_manifest_check")
+        if last_check:
+            try:
+                last_dt = datetime.fromisoformat(last_check)
+                if datetime.now() - last_dt < timedelta(hours=24):
+                    return  # Checked recently, skip
+            except (ValueError, TypeError):
+                pass  # Malformed timestamp, proceed with check
+        
+        # Fetch manifest
+        manifest = _fetch_upstream_manifest()
+        if not manifest:
+            return  # Silent failure
+        
+        # Compare hashes against local files
+        needs_update, _ = _compare_files(manifest.get("files", {}), section11_dir)
+        
+        # Update timestamp regardless of result
+        config["last_manifest_check"] = datetime.now().isoformat()
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        # Notify if updates available
+        if needs_update:
+            print(f"\n⚠️  {len(needs_update)} Section 11 update{'s' if len(needs_update) != 1 else ''} available — run: python section11/examples/sync.py --update")
+    
+    except Exception:
+        pass  # Never interrupt a sync run
+
+
+# === Lockfile for automated sync ===
+
+_lockfile_path = None  # Module-level so atexit handler can find it
+
+
+def _is_pid_alive(pid):
+    """Check if a process with the given PID is still running."""
+    try:
+        os.kill(int(pid), 0)
+        return True  # Process exists (we own it)
+    except PermissionError:
+        return True  # Process exists (owned by another user)
+    except (OSError, ValueError, TypeError):
+        return False  # Process doesn't exist or invalid PID
+
+
+def _acquire_lockfile():
+    """
+    Acquire the sync lockfile. Returns True if acquired, False if another
+    instance is running. Handles stale lockfiles from crashed runs.
+    
+    Stale detection:
+    - PID in lockfile is dead → stale, override with warning
+    - Lockfile older than 10 minutes regardless of PID → stale, override
+    - PID alive and age < 10 minutes → another instance running, exit
+    """
+    global _lockfile_path
+    lockfile = Path.cwd() / ".sync.lock"
+    
+    if lockfile.exists():
+        try:
+            with open(lockfile, 'r') as f:
+                lock_data = json.load(f)
+        except Exception:
+            # Can't read lockfile — treat as stale
+            print("Section 11: removing unreadable lockfile")
+            lockfile.unlink(missing_ok=True)
+            lock_data = None
+        
+        if lock_data:
+            lock_pid = lock_data.get("pid")
+            lock_time = lock_data.get("started")
+            
+            # Check if lock is stale by age (>10 minutes)
+            stale_by_age = False
+            if lock_time:
+                try:
+                    lock_dt = datetime.fromisoformat(lock_time)
+                    age_minutes = (datetime.now() - lock_dt).total_seconds() / 60
+                    if age_minutes > 10:
+                        stale_by_age = True
+                except (ValueError, TypeError):
+                    stale_by_age = True  # Can't parse timestamp, treat as stale
+            else:
+                stale_by_age = True  # No timestamp, treat as stale
+            
+            # Check if owning process is alive
+            pid_alive = _is_pid_alive(lock_pid) if lock_pid else False
+            
+            if pid_alive and not stale_by_age:
+                # Legitimate lock — another instance is running
+                return False
+            
+            # Stale lock — override
+            if stale_by_age:
+                print(f"Section 11: lockfile is stale (>10 min) — overriding")
+            elif not pid_alive:
+                print(f"Section 11: lockfile owner (PID {lock_pid}) is not running — overriding stale lock")
+    
+    # Write new lockfile
+    _lockfile_path = lockfile
+    try:
+        with open(lockfile, 'w') as f:
+            json.dump({"pid": os.getpid(), "started": datetime.now().isoformat()}, f)
+        atexit.register(_release_lockfile)
+        return True
+    except Exception as e:
+        print(f"Section 11: could not create lockfile — {e}")
+        return True  # Proceed anyway, don't block sync over a lockfile issue
+
+
+def _release_lockfile():
+    """Remove the lockfile. Called via atexit on normal exit."""
+    global _lockfile_path
+    if _lockfile_path and _lockfile_path.exists():
+        try:
+            # Only remove if we still own it (check PID)
+            with open(_lockfile_path, 'r') as f:
+                lock_data = json.load(f)
+            if lock_data.get("pid") == os.getpid():
+                _lockfile_path.unlink(missing_ok=True)
+        except Exception:
+            pass  # Best effort cleanup
+
+
+def _rotate_log_if_needed():
+    """Rotate sync.log if over 1MB. Keeps the last 200 lines."""
+    try:
+        log_path = Path.cwd() / "sync.log"
+        if not log_path.exists():
+            return
+        if log_path.stat().st_size < 1_000_000:  # 1MB
+            return
+        with open(log_path, 'r') as f:
+            lines = f.readlines()
+        with open(log_path, 'w') as f:
+            f.writelines(lines[-200:])
+    except Exception:
+        pass  # Never block sync over a log issue
+
+
 def main():
     parser = argparse.ArgumentParser(description="Sync Intervals.icu data to GitHub or local file")
     parser.add_argument("--setup", action="store_true", help="Initial setup wizard")
+    parser.add_argument("--init", action="store_true", help="Download Section 11 repo to section11/ (first-time local setup)")
+    parser.add_argument("--update", action="store_true", help="Check for and pull Section 11 updates")
     parser.add_argument("--athlete-id", help="Intervals.icu athlete ID")
     parser.add_argument("--intervals-key", help="Intervals.icu API key")
     parser.add_argument("--github-token", help="GitHub Personal Access Token")
@@ -3533,7 +6246,11 @@ def main():
     parser.add_argument("--output", help="Save to local file instead of GitHub")
     parser.add_argument("--anonymize", action="store_true", default=True, help="Remove identifying information (default: enabled)")
     parser.add_argument("--debug", action="store_true", help="Show debug output for API fields")
+    parser.add_argument("--week-start", choices=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+                        default=None, help="Training week start day (default: mon, or from config)")
     parser.add_argument("--generate-history", action="store_true", help="Force generate history.json (pulls up to 3 years)")
+    parser.add_argument("--generate-manifest", action="store_true", help="Generate manifest.json from repo files (maintainer use)")
+    parser.add_argument("--lockfile", action="store_true", help="Prevent overlapping runs (recommended for automated timers)")
     
     args = parser.parse_args()
     
@@ -3552,6 +6269,14 @@ def main():
             config["github_token"] = github_token
         if github_repo:
             config["github_repo"] = github_repo
+        
+        week_input = input("Training week starts on (mon/tue/wed/thu/fri/sat/sun, default: mon): ").strip().lower()
+        if week_input in ("mon", "tue", "wed", "thu", "fri", "sat", "sun"):
+            config["week_start"] = week_input
+        
+        zone_pref_input = input("Zone preference overrides (e.g. run:hr,cycling:power, or press Enter for default): ").strip()
+        if zone_pref_input:
+            config["zone_preference"] = zone_pref_input
             
         with open(".sync_config.json", "w") as f:
             json.dump(config, f, indent=2)
@@ -3561,6 +6286,26 @@ def main():
         print("  Push to GitHub:    python sync.py")
         print("  Generate history:  python sync.py --generate-history --output history.json")
         return
+    
+    if args.init:
+        do_init()
+        return
+    
+    if args.update:
+        do_update()
+        return
+    
+    if args.generate_manifest:
+        do_generate_manifest()
+        return
+    
+    # Rotate sync.log if it's grown too large
+    _rotate_log_if_needed()
+    
+    # Lockfile: prevent overlapping runs (for automated timers)
+    if args.lockfile:
+        if not _acquire_lockfile():
+            return  # Another instance is running
     
     config = {}
     if os.path.exists(".sync_config.json"):
@@ -3572,12 +6317,40 @@ def main():
     github_token = args.github_token or config.get("github_token") or os.getenv("GITHUB_TOKEN")
     github_repo = args.github_repo or config.get("github_repo") or os.getenv("GITHUB_REPO")
     
+    # Week start: CLI → config file → env var → default (Monday/ISO)
+    week_day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+    week_start_raw = args.week_start or config.get("week_start") or os.getenv("WEEK_START") or "mon"
+    week_start_day = week_day_map.get(week_start_raw.lower(), 0)
+    week_start_name = {v: k for k, v in week_day_map.items()}.get(week_start_day, "mon")
+    
+    # Zone preference: config file → env var → default (power preferred)
+    # Format: "run:hr,cycling:power" → {"run": "hr", "cycling": "power"}
+    zone_pref_raw = config.get("zone_preference") or os.getenv("ZONE_PREFERENCE") or ""
+    zone_preference = {}
+    if zone_pref_raw:
+        for pair in zone_pref_raw.split(","):
+            pair = pair.strip()
+            if ":" in pair:
+                sport, basis = pair.split(":", 1)
+                sport = sport.strip().lower()
+                basis = basis.strip().lower()
+                if basis in ("power", "hr"):
+                    zone_preference[sport] = basis
+                else:
+                    print(f"   ⚠️  Ignoring invalid zone preference '{pair}' — basis must be 'power' or 'hr'")
+            elif pair:
+                print(f"   ⚠️  Ignoring invalid zone preference '{pair}' — expected format sport:basis")
+    
+    zone_pref_display = ", ".join(f"{s}:{b}" for s, b in zone_preference.items()) if zone_preference else "default (power preferred)"
+    
     print(f"📋 Configuration:")
     print(f"   Athlete ID: {athlete_id[:5] + '...' if athlete_id else 'NOT SET'}")
     print(f"   Intervals Key: {intervals_key[:5] + '...' if intervals_key else 'NOT SET'}")
     print(f"   GitHub Repo: {github_repo or 'NOT SET'}")
     print(f"   GitHub Token: {'SET' if github_token else 'NOT SET'}")
     print(f"   Days: {args.days}")
+    print(f"   Week start: {week_start_name}")
+    print(f"   Zone preference: {zone_pref_display}")
     print(f"   Version: {IntervalsSync.VERSION}")
     
     if not athlete_id or not intervals_key:
@@ -3585,7 +6358,9 @@ def main():
         print("   Run: python sync.py --setup")
         return
     
-    sync = IntervalsSync(athlete_id, intervals_key, github_token, github_repo, debug=args.debug)
+    sync = IntervalsSync(athlete_id, intervals_key, github_token, github_repo, 
+                         debug=args.debug, week_start_day=week_start_day,
+                         zone_preference=zone_preference)
     
     # Manual history generation
     if args.generate_history:
@@ -3669,12 +6444,20 @@ def main():
         print_summary()
         print(f"\n💡 Tip: Paste contents to AI, or upload the file directly")
         
+        # === SAVE INTERVALS.JSON (local mode) ===
+        intervals_data = getattr(sync, '_intervals_data', None)
+        if intervals_data and intervals_data.get("activities"):
+            intervals_path = sync.data_dir / sync.INTERVALS_FILE
+            with open(intervals_path, 'w') as f:
+                json.dump(intervals_data, f, indent=2, default=str)
+            print(f"   📊 intervals.json saved ({len(intervals_data['activities'])} activities)")
+        
         # === AUTO HISTORY GENERATION (local mode) ===
         if sync.should_generate_history():
             try:
                 print("\n📊 Auto-generating history.json...")
                 history = sync.generate_history()
-                history_path = sync.script_dir / sync.HISTORY_FILE
+                history_path = sync.data_dir / sync.HISTORY_FILE
                 with open(history_path, 'w') as f:
                     json.dump(history, f, indent=2, default=str)
                 print(f"   ✅ history.json saved to {history_path}")
@@ -3691,6 +6474,20 @@ def main():
         print(f"   {raw_url}")
         print(f"\n💬 Example prompt:")
         print(f'   "Analyze my training data from {raw_url}"')
+        
+        # === PUBLISH INTERVALS.JSON (GitHub mode) ===
+        intervals_data = getattr(sync, '_intervals_data', None)
+        if intervals_data and intervals_data.get("activities"):
+            # Save locally for incremental cache on next run
+            intervals_path = sync.data_dir / sync.INTERVALS_FILE
+            with open(intervals_path, 'w') as f:
+                json.dump(intervals_data, f, indent=2, default=str)
+            try:
+                sync.publish_to_github(intervals_data, filepath="intervals.json",
+                                       commit_message=f"Update intervals.json - {datetime.now().strftime('%Y-%m-%d')}")
+                print(f"   📊 intervals.json pushed ({len(intervals_data['activities'])} activities)")
+            except Exception as e:
+                print(f"   ⚠️ intervals.json push failed (non-critical): {e}")
         
         # === AUTO HISTORY GENERATION (Sundays/Mondays, first two runs after midnight) ===
         if sync.should_generate_history():
@@ -3710,6 +6507,9 @@ def main():
         except Exception as e:
             if args.debug:
                 print(f"   ⚠️ Update check failed (non-critical): {e}")
+    
+    # === MANIFEST UPDATE CHECK (local setups, once per 24h) ===
+    notify_if_updates_available()
 
 
 if __name__ == "__main__":
